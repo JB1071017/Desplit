@@ -123,15 +123,18 @@ class _FedAvgViewState extends State<FedAvgView> with SingleTickerProviderStateM
   List<Map<String, dynamic>> _diagnosticStreams = [];
 
   // Table filtering & search
-  String _nodeFilter = 'ALL'; // 'ALL', 'TRAINING', 'SYNCED', 'SYNCING', 'LAGGING'
-  String _clusterFilter = 'ALL';
+  final String _nodeFilter = 'ALL'; // 'ALL', 'TRAINING', 'SYNCED', 'SYNCING', 'LAGGING'
+  final String _clusterFilter = 'ALL';
   String _searchQuery = '';
-  String _sortBy = 'Speed'; // 'Speed', 'Progress', 'Weight', 'Ping', 'Name'
-  bool _sortAscending = false;
+  final String _sortBy = 'Speed'; // 'Speed', 'Progress', 'Weight', 'Ping', 'Name'
+  final bool _sortAscending = false;
 
-  // Expandable row state
-  String? _expandedNodeId;
-  int? _hoveredRowIndex;
+  // Docker Desktop View State (Matching Image 1)
+  bool _showCharts = false; // By default HIDE details from Image 2 as a dropdown
+  bool _onlyShowActive = false; // "Only show running containers" toggle
+  bool _isLocalExpanded = true; // Group expansion chevron for host row
+  bool _selectAll = false;
+  final Set<String> _selectedNodeIds = {};
 
   // Alert & sliding notification state
   late List<_SwarmAlert> _alerts;
@@ -159,6 +162,7 @@ class _FedAvgViewState extends State<FedAvgView> with SingleTickerProviderStateM
     _syncWithDaemonFedAvg();
     DeSplitDaemonService.instance.fedAvgState.addListener(_onDaemonFedAvgChanged);
     DeSplitDaemonService.instance.networkState.addListener(_onDaemonFedAvgChanged);
+    DeSplitDaemonService.instance.hardwareMetrics.addListener(_onDaemonFedAvgChanged);
   }
 
   void _onDaemonFedAvgChanged() {
@@ -430,6 +434,7 @@ class _FedAvgViewState extends State<FedAvgView> with SingleTickerProviderStateM
   void dispose() {
     DeSplitDaemonService.instance.fedAvgState.removeListener(_onDaemonFedAvgChanged);
     DeSplitDaemonService.instance.networkState.removeListener(_onDaemonFedAvgChanged);
+    DeSplitDaemonService.instance.hardwareMetrics.removeListener(_onDaemonFedAvgChanged);
     _liveUpdateTimer?.cancel();
     _alertSlideTimer?.cancel();
     _searchController.dispose();
@@ -487,12 +492,46 @@ class _FedAvgViewState extends State<FedAvgView> with SingleTickerProviderStateM
   }
 
   void _inspectNode(String nodeId) {
-    setState(() {
-      _activeViewIndex = 0;
-      _nodeFilter = 'ALL';
-      _clusterFilter = 'ALL';
-      _expandedNodeId = nodeId;
-    });
+    final worker = _workers.firstWhere(
+      (w) => w.id == nodeId,
+      orElse: () => _workers.first,
+    );
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final isDark = !ThemeService.instance.isLight;
+        return AlertDialog(
+          backgroundColor: AppColors.cardSurface,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          title: Row(
+            children: [
+              Icon(Icons.assessment_rounded, color: AppColors.brandAccent, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Node Telemetry: ${worker.name}',
+                style: TextStyle(
+                  color: isDark ? Colors.white : AppColors.textPrimary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 780,
+            child: SingleChildScrollView(
+              child: _buildExpandedNodeDrawer(worker, isDark),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text('Close', style: TextStyle(color: AppColors.brandAccent)),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _openParametersDialog() {
@@ -701,32 +740,36 @@ class _FedAvgViewState extends State<FedAvgView> with SingleTickerProviderStateM
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // 1. Top Cyber Brand Navigation Bar (like Malext Sentry)
-              _buildTopNavBar(isDark),
+              // 1. Docker-style Top Header with Real Hardware Stats (Matching Image 1)
+              _buildDockerHeader(isDark),
+
+              // 2. Collapsible Image 2 Details Dropdown (4 Cards + Alert Banner)
+              AnimatedCrossFade(
+                duration: const Duration(milliseconds: 240),
+                crossFadeState: _showCharts ? CrossFadeState.showFirst : CrossFadeState.showSecond,
+                firstChild: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 16),
+                    _buildMetricCardsRow(isDark),
+                    const SizedBox(height: 14),
+                    _buildAlertBanner(isDark),
+                  ],
+                ),
+                secondChild: const SizedBox.shrink(),
+              ),
 
               const SizedBox(height: 16),
 
-              // 2. Metric Summary Cards (4 Cards Grid, including Detection Pulse chart)
-              _buildMetricCardsRow(isDark),
+              // 3. Docker-style Toolbar (Search, Layout Icon, Only show running switch, Actions)
+              _buildDockerToolbar(isDark),
 
               const SizedBox(height: 14),
 
-              // 3. Sliding Cyber Alert Banner
-              _buildAlertBanner(isDark),
-
-              const SizedBox(height: 16),
-
-              // 4. View Specific Content
+              // 4. View Specific Content: Docker Nodes Table (Main) or Full Diagnostics
               if (_activeViewIndex == 0) ...[
-                // Search, Filter & Toolbar (with segmented distribution progress bar)
-                _buildSearchAndFilterToolbar(isDark),
-
-                const SizedBox(height: 14),
-
-                // Main High-Tech Data Table (matching Image 1 & Image 2)
-                _buildSentryDataTable(isDark),
+                _buildDockerNodesTable(isDark),
               ] else ...[
-                // Full Diagnostics & Network View
                 _buildDiagnosticsSection(isDark),
               ],
 
@@ -739,200 +782,245 @@ class _FedAvgViewState extends State<FedAvgView> with SingleTickerProviderStateM
   }
 
   // ---------------------------------------------------------------------------
-  // 1. Top Navigation Bar (Malext Sentry style)
+  // 1. Docker Desktop Header & Resource Usage Bar (Matching Image 1)
   // ---------------------------------------------------------------------------
-  Widget _buildTopNavBar(bool isDark) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: _cardBg,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: _borderColor,
-          width: 1.0,
+  Widget _buildDockerHeader(bool isDark) {
+    final hwData = DeSplitDaemonService.instance.hardwareMetrics.value;
+    final realtime = hwData?['realtime'] as Map<String, dynamic>?;
+    final cpuPercent = (realtime?['cpu_percent'] as num?)?.toDouble() ?? 47.7;
+    final cpuCores = (realtime?['cpu_cores_logical'] as num?)?.toInt() ?? 12;
+    final ramUsedGb = (realtime?['ram_used_gb'] as num?)?.toDouble() ?? 13.1;
+    final ramTotalGb = (realtime?['ram_total_gb'] as num?)?.toDouble() ?? 15.8;
+    final speedItSec = _workers.isNotEmpty ? _workers.first.speedItSec : 49.0;
+    final gpus = hwData?['gpus'] as List<dynamic>?;
+    final gpuName = gpus != null && gpus.isNotEmpty
+        ? (gpus.first['name'] as String? ?? 'Iris Xe')
+        : 'Intel(R) Iris(R) Xe';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Title row matching Image 1
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(
+              'Swarm Nodes',
+              style: TextStyle(
+                color: _textPrimary,
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.3,
+              ),
+            ),
+            const SizedBox(width: 8),
+            InkWell(
+              onTap: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('DeSplit Swarm v1.4.0 • Node pool healthy'),
+                    duration: Duration(seconds: 1),
+                    backgroundColor: Color(0xFF00F5A0),
+                  ),
+                );
+              },
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Give feedback',
+                    style: TextStyle(
+                      color: Color(0xFF38BDF8),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  SizedBox(width: 2),
+                  Icon(Icons.open_in_new_rounded, size: 10, color: Color(0xFF38BDF8)),
+                ],
+              ),
+            ),
+            const Spacer(),
+            // Navigation pills (Swarm Nodes vs Diagnostics)
+            _buildNavPill(
+              title: 'SWARM NODES',
+              badge: '${_workers.length}',
+              isActive: _activeViewIndex == 0,
+              onTap: () => setState(() => _activeViewIndex = 0),
+            ),
+            const SizedBox(width: 6),
+            _buildNavPill(
+              title: 'DIAGNOSTICS',
+              badge: 'LIVE',
+              isActive: _activeViewIndex == 1,
+              onTap: () => setState(() => _activeViewIndex = 1),
+            ),
+          ],
         ),
-      ),
-      child: Wrap(
-        alignment: WrapAlignment.spaceBetween,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 12,
-        runSpacing: 10,
-        children: [
-          // Left: Brand Logo & Title with live pulsing indicator
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 9,
-                height: 9,
-                decoration: BoxDecoration(
-                  color: _isPaused
-                      ? const Color(0xFFF59E0B)
-                      : (_isAggregating ? const Color(0xFFA855F7) : const Color(0xFF00F5A0)),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: (_isPaused
-                              ? const Color(0xFFF59E0B)
-                              : (_isAggregating ? const Color(0xFFA855F7) : const Color(0xFF00F5A0)))
-                          .withValues(alpha: 0.6),
-                      blurRadius: 8,
-                      spreadRadius: 2,
+        const SizedBox(height: 3),
+        // Subtitle matching Image 1
+        Row(
+          children: [
+            Text(
+              'View all your running federated nodes and active model shards. ',
+              style: TextStyle(
+                color: _textMuted,
+                fontSize: 12,
+              ),
+            ),
+            InkWell(
+              onTap: _openParametersDialog,
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Learn more',
+                    style: TextStyle(
+                      color: Color(0xFF38BDF8),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  SizedBox(width: 2),
+                  Icon(Icons.open_in_new_rounded, size: 11, color: Color(0xFF38BDF8)),
+                ],
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 18),
+
+        // Live Resource Stats row matching Image 1
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            // Container CPU usage
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Container CPU usage ',
+                      style: TextStyle(
+                        color: _textMuted,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    Icon(Icons.info_outline_rounded, size: 12, color: _textMuted),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      '${cpuPercent.toStringAsFixed(2)}% / 100%',
+                      style: const TextStyle(
+                        color: Color(0xFF00F5A0),
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                    Text(
+                      ' ($cpuCores CPUs available • ${speedItSec.toStringAsFixed(1)} it/s)',
+                      style: TextStyle(
+                        color: _textMuted,
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+
+            const SizedBox(width: 48),
+
+            // Container memory usage
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Container memory usage ',
+                      style: TextStyle(
+                        color: _textMuted,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    Icon(Icons.info_outline_rounded, size: 12, color: _textMuted),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      '${(ramUsedGb * 1024).toStringAsFixed(2)}MB / ${(ramTotalGb * 1024).toStringAsFixed(2)}MB',
+                      style: const TextStyle(
+                        color: Color(0xFF00F5A0),
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                    Text(
+                      ' (${ramTotalGb.toStringAsFixed(1)}GB • $gpuName)',
+                      style: TextStyle(
+                        color: _textMuted,
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+
+            const Spacer(),
+
+            // Show charts / Hide charts toggle matching Image 1
+            InkWell(
+              onTap: () => setState(() => _showCharts = !_showCharts),
+              borderRadius: BorderRadius.circular(4),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _showCharts ? 'Hide charts' : 'Show charts',
+                      style: TextStyle(
+                        color: _showCharts ? const Color(0xFF00F5A0) : _textPrimary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      _showCharts ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                      size: 16,
+                      color: _showCharts ? const Color(0xFF00F5A0) : _textPrimary,
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 10),
-              const Text(
-                'Welcome Back...',
-                style: TextStyle(
-                  color: Color(0xFF00F5A0),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.2,
-                  fontFamily: 'monospace',
-                ),
-              ),
-              const SizedBox(width: 10),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: _cardSurfaceLight,
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: _borderColor),
-                ),
-                child: Text(
-                  'Llama 3 (8B)',
-                  style: TextStyle(
-                    color: _textSecondary,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-
-          // Center: View Navigation Pills
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildNavPill(
-                title: 'SWARM NODES',
-                badge: '${_workers.length}',
-                isActive: _activeViewIndex == 0,
-                onTap: () => setState(() => _activeViewIndex = 0),
-              ),
-              const SizedBox(width: 6),
-              _buildNavPill(
-                title: 'DIAGNOSTICS',
-                badge: 'LIVE',
-                isActive: _activeViewIndex == 1,
-                onTap: () => setState(() => _activeViewIndex = 1),
-              ),
-              const SizedBox(width: 6),
-              _buildNavPill(
-                title: 'PARAMETERS',
-                badge: 'INT8',
-                isActive: false,
-                onTap: _openParametersDialog,
-              ),
-            ],
-          ),
-
-          // Right: Swarm Executive Training Controls
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Pause / Resume Button
-              InkWell(
-                onTap: _togglePauseTraining,
-                borderRadius: BorderRadius.circular(6),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: _isPaused
-                        ? const Color(0xFFF59E0B).withValues(alpha: 0.15)
-                        : _cardSurfaceLight,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                      color: _isPaused
-                          ? const Color(0xFFF59E0B).withValues(alpha: 0.4)
-                          : _borderColor,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        _isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
-                        size: 13,
-                        color: _isPaused ? const Color(0xFFF59E0B) : _textSecondary,
-                      ),
-                      const SizedBox(width: 5),
-                      Text(
-                        _isPaused ? 'RESUME' : 'PAUSE',
-                        style: TextStyle(
-                          color: _isPaused ? const Color(0xFFF59E0B) : _textSecondary,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              const SizedBox(width: 8),
-
-              // Trigger Aggregation Button
-              InkWell(
-                onTap: _isAggregating ? null : _triggerManualAggregation,
-                borderRadius: BorderRadius.circular(6),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF00F5A0), Color(0xFF00D287)],
-                    ),
-                    borderRadius: BorderRadius.circular(6),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF00F5A0).withValues(alpha: 0.25),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _isAggregating
-                          ? const SizedBox(
-                              width: 11,
-                              height: 11,
-                              child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.black),
-                            )
-                          : const Icon(Icons.merge_type_rounded, size: 12, color: Colors.black),
-                      const SizedBox(width: 5),
-                      Text(
-                        _isAggregating ? 'AGGREGATING...' : 'SYNC ROUND',
-                        style: const TextStyle(
-                          color: Colors.black,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -1409,471 +1497,284 @@ class _FedAvgViewState extends State<FedAvgView> with SingleTickerProviderStateM
   }
 
   // ---------------------------------------------------------------------------
-  // 4. Search, Filter & Action Toolbar (EXACTLY matching Image 2)
+  // 3. Docker-Style Toolbar (Matching Image 1)
   // ---------------------------------------------------------------------------
-  Widget _buildSearchAndFilterToolbar(bool isDark) {
-    final trainingCount = _workers.where((w) => w.status == 'Training' && !w.isExcluded).length;
-    final syncedCount = _workers.where((w) => w.status == 'Synced' && !w.isExcluded).length;
-    final syncingCount = _workers.where((w) => w.status == 'Syncing' && !w.isExcluded).length;
-    final laggingCount = _workers.where((w) => w.status == 'Lagging' && !w.isExcluded).length;
-    final excludedCount = _workers.where((w) => w.isExcluded).length;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+  Widget _buildDockerToolbar(bool isDark) {
+    return Row(
       children: [
-        // Main toolbar row
-        Wrap(
-          alignment: WrapAlignment.spaceBetween,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            // Left: Cluster filter dropdown pill (like "MALEXT RESEARCH 0" in Image 2)
-            PopupMenuButton<String>(
-              initialValue: _clusterFilter,
-              onSelected: (val) => setState(() => _clusterFilter = val),
-              color: _cardBg,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-                side: BorderSide(color: _borderColor),
-              ),
-              itemBuilder: (ctx) {
-                final distinctClusters = {'ALL', ..._workers.map((w) => w.cluster.split('•').first.trim()).toSet()};
-                return distinctClusters.map((c) {
-                  final label = c == 'ALL' ? 'All Clusters (${distinctClusters.length - 1})' : c;
-                  return PopupMenuItem(
-                    value: c,
-                    child: Text(label, style: TextStyle(color: _textPrimary, fontSize: 12)),
-                  );
-                }).toList();
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                decoration: BoxDecoration(
-                  color: _cardSurfaceLight,
-                  borderRadius: BorderRadius.circular(7),
-                  border: Border.all(color: _borderColor),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.hub_outlined, size: 13, color: Color(0xFF00F5A0)),
-                    const SizedBox(width: 7),
-                    Text(
-                      _clusterFilter == 'ALL' ? 'ALL CLUSTERS' : _clusterFilter.toUpperCase(),
-                      style: TextStyle(
-                        color: _textSecondary,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        fontFamily: 'monospace',
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Icon(Icons.arrow_drop_down_rounded, size: 16, color: _textMuted),
-                  ],
-                ),
-              ),
-            ),
-
-            // Center: Search Bar with Ctrl+K shortcut badge (Image 2 style)
-            Container(
-              width: 380,
-              height: 34,
-              decoration: BoxDecoration(
-                color: _cardSurfaceLight,
-                borderRadius: BorderRadius.circular(7),
-                border: Border.all(color: _borderColor),
-              ),
-              child: Row(
-                children: [
-                  const SizedBox(width: 10),
-                  Icon(Icons.search_rounded, size: 15, color: _textMuted),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: _searchController,
-                      onChanged: (val) => setState(() => _searchQuery = val),
-                      style: TextStyle(
-                        color: _textPrimary,
-                        fontSize: 12,
-                        fontFamily: 'monospace',
-                      ),
-                      decoration: InputDecoration(
-                        hintText: 'Search by node name, ID, hardware, or cluster...',
-                        hintStyle: TextStyle(
-                          color: _textMuted,
-                          fontSize: 11,
-                          fontFamily: 'monospace',
-                        ),
-                        border: InputBorder.none,
-                        isDense: true,
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                  ),
-                  if (_searchQuery.isNotEmpty)
-                    InkWell(
-                      onTap: () {
-                        _searchController.clear();
-                        setState(() => _searchQuery = '');
-                      },
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        child: Icon(Icons.close_rounded, size: 14, color: _textMuted),
-                      ),
-                    ),
-                  Container(
-                    margin: const EdgeInsets.only(right: 6),
-                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: _cardSurfaceHover,
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: _borderColor, width: 0.8),
-                    ),
-                    child: Text(
-                      'Ctrl+K',
-                      style: TextStyle(
-                        color: _textMuted,
-                        fontSize: 9,
-                        fontFamily: 'monospace',
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Quick Status Filter Chips
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildStatusFilterChip('ALL', 'ALL', null),
-                const SizedBox(width: 5),
-                _buildStatusFilterChip('TRAINING', 'TRAINING', const Color(0xFF38BDF8)),
-                const SizedBox(width: 5),
-                _buildStatusFilterChip('SYNCED', 'SYNCED', const Color(0xFF00F5A0)),
-                const SizedBox(width: 5),
-                _buildStatusFilterChip('SYNCING', 'SYNCING', const Color(0xFFA855F7)),
-                const SizedBox(width: 5),
-                _buildStatusFilterChip('LAGGING', 'LAGGING', const Color(0xFFF59E0B)),
-              ],
-            ),
-
-            // Right: Sort By Dropdown & Export Button
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Sort By Button
-                PopupMenuButton<String>(
-                  initialValue: _sortBy,
-                  onSelected: (val) {
-                    setState(() {
-                      if (_sortBy == val) {
-                        _sortAscending = !_sortAscending;
-                      } else {
-                        _sortBy = val;
-                        _sortAscending = false;
-                      }
-                    });
-                  },
-                  color: _cardBg,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    side: BorderSide(color: _borderColor),
-                  ),
-                  itemBuilder: (ctx) => [
-                    PopupMenuItem(value: 'Speed', child: Text('Sort by Speed (it/s)', style: TextStyle(color: _textPrimary, fontSize: 12))),
-                    PopupMenuItem(value: 'Progress', child: Text('Sort by Progress', style: TextStyle(color: _textPrimary, fontSize: 12))),
-                    PopupMenuItem(value: 'Weight', child: Text('Sort by Weight Score', style: TextStyle(color: _textPrimary, fontSize: 12))),
-                    PopupMenuItem(value: 'Ping', child: Text('Sort by Network Ping', style: TextStyle(color: _textPrimary, fontSize: 12))),
-                    PopupMenuItem(value: 'Name', child: Text('Sort by Node Name', style: TextStyle(color: _textPrimary, fontSize: 12))),
-                  ],
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                    decoration: BoxDecoration(
-                      color: _cardSurfaceLight,
-                      borderRadius: BorderRadius.circular(7),
-                      border: Border.all(color: _borderColor),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.sort_rounded, size: 13, color: _textMuted),
-                        const SizedBox(width: 6),
-                        Text(
-                          'SORT: ${_sortBy.toUpperCase()} ${_sortAscending ? '▲' : '▼'}',
-                          style: TextStyle(
-                            color: _textSecondary,
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w700,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                      ],
-                    ),
+        // Search Box (matching Image 1)
+        Container(
+          width: 250,
+          height: 34,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: _cardBg,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: _borderColor),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.search_rounded, size: 16, color: _textMuted),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: _searchController,
+                  onChanged: (val) => setState(() => _searchQuery = val),
+                  style: TextStyle(color: _textPrimary, fontSize: 12.5),
+                  decoration: InputDecoration(
+                    hintText: 'Search',
+                    hintStyle: TextStyle(color: _textMuted, fontSize: 12.5),
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
                   ),
                 ),
-
-                const SizedBox(width: 8),
-
-                // Export CSV Button
+              ),
+              if (_searchQuery.isNotEmpty)
                 InkWell(
                   onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Swarm telemetry exported to /logs/fedavg_round_4_telemetry.csv'),
-                        duration: Duration(seconds: 2),
-                        backgroundColor: Color(0xFF00F5A0),
-                      ),
-                    );
+                    _searchController.clear();
+                    setState(() => _searchQuery = '');
                   },
-                  borderRadius: BorderRadius.circular(7),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                    decoration: BoxDecoration(
-                      color: _cardSurfaceLight,
-                      borderRadius: BorderRadius.circular(7),
-                      border: Border.all(color: _borderColor),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.download_rounded, size: 13, color: Color(0xFF00F5A0)),
-                        SizedBox(width: 5),
-                        Text(
-                          'EXPORT CSV',
-                          style: TextStyle(
-                            color: Color(0xFF00F5A0),
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w700,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  child: Icon(Icons.close_rounded, size: 14, color: _textMuted),
                 ),
-              ],
+            ],
+          ),
+        ),
+
+        const SizedBox(width: 10),
+
+        // Layout Icon Button (matching Image 1)
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: _cardBg,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: _borderColor),
+          ),
+          child: Icon(Icons.table_rows_rounded, size: 15, color: _textSecondary),
+        ),
+
+        const SizedBox(width: 14),
+
+        // Only show running nodes switch (matching Image 1)
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Transform.scale(
+              scale: 0.75,
+              child: Switch(
+                value: _onlyShowActive,
+                onChanged: (val) => setState(() => _onlyShowActive = val),
+                activeThumbColor: const Color(0xFF00F5A0),
+                activeTrackColor: const Color(0xFF00F5A0).withValues(alpha: 0.3),
+                inactiveThumbColor: const Color(0xFF94A3B8),
+                inactiveTrackColor: const Color(0xFF334155),
+              ),
+            ),
+            const SizedBox(width: 2),
+            Text(
+              'Only show running nodes',
+              style: TextStyle(
+                color: _textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ],
         ),
 
-        const SizedBox(height: 10),
+        const Spacer(),
 
-        // Thin Multi-Colored Segmented Distribution Progress Bar (Image 2 style)
-        ClipRRect(
-          borderRadius: BorderRadius.circular(3),
-          child: SizedBox(
-            height: 4,
+        // Right side Action buttons
+        // Pause / Resume Swarm
+        InkWell(
+          onTap: _togglePauseTraining,
+          borderRadius: BorderRadius.circular(6),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: _cardSurfaceLight,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: _borderColor),
+            ),
             child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                if (trainingCount > 0)
-                  Expanded(
-                    flex: trainingCount,
-                    child: Container(color: const Color(0xFF38BDF8)),
+                Icon(
+                  _isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                  size: 14,
+                  color: _isPaused ? const Color(0xFFF59E0B) : _textSecondary,
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  _isPaused ? 'Resume Swarm' : 'Pause Swarm',
+                  style: TextStyle(
+                    color: _isPaused ? const Color(0xFFF59E0B) : _textSecondary,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
                   ),
-                if (syncedCount > 0)
-                  Expanded(
-                    flex: syncedCount,
-                    child: Container(color: const Color(0xFF00F5A0)),
-                  ),
-                if (syncingCount > 0)
-                  Expanded(
-                    flex: syncingCount,
-                    child: Container(color: const Color(0xFFA855F7)),
-                  ),
-                if (laggingCount > 0)
-                  Expanded(
-                    flex: laggingCount,
-                    child: Container(color: const Color(0xFFF59E0B)),
-                  ),
-                if (excludedCount > 0)
-                  Expanded(
-                    flex: excludedCount,
-                    child: Container(color: const Color(0xFFEF4444)),
-                  ),
+                ),
               ],
             ),
           ),
+        ),
+
+        const SizedBox(width: 8),
+
+        // Trigger FedAvg
+        InkWell(
+          onTap: _isAggregating ? null : _triggerManualAggregation,
+          borderRadius: BorderRadius.circular(6),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF00F5A0), Color(0xFF00D287)],
+              ),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _isAggregating
+                    ? const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.black),
+                      )
+                    : const Icon(Icons.flash_on_rounded, size: 13, color: Colors.black),
+                const SizedBox(width: 5),
+                Text(
+                  _isAggregating ? 'Aggregating...' : 'Trigger FedAvg',
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(width: 6),
+
+        // Parameters icon button
+        IconButton(
+          tooltip: 'Consensus Parameters',
+          icon: Icon(Icons.tune_rounded, size: 17, color: _textMuted),
+          onPressed: _openParametersDialog,
         ),
       ],
     );
   }
 
-  Widget _buildStatusFilterChip(String label, String value, Color? dotColor) {
-    final isSelected = _nodeFilter == value;
+  // ---------------------------------------------------------------------------
+  // 4. Main Swarm Nodes Table (Docker Desktop Style Matching Image 1)
+  // ---------------------------------------------------------------------------
+  Widget _buildDockerNodesTable(bool isDark) {
+    final hwData = DeSplitDaemonService.instance.hardwareMetrics.value;
+    final realtime = hwData?['realtime'] as Map<String, dynamic>?;
+    final cpuPercent = (realtime?['cpu_percent'] as num?)?.toDouble() ?? 47.7;
+    final speedItSec = _workers.isNotEmpty ? _workers.first.speedItSec : 49.0;
 
-    return InkWell(
-      onTap: () => setState(() => _nodeFilter = value),
-      borderRadius: BorderRadius.circular(6),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected ? _cardSurfaceHover : _cardSurfaceLight,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(
-            color: isSelected ? AppColors.brandAccent.withValues(alpha: 0.7) : _borderColor,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (dotColor != null) ...[
-              Container(
-                width: 6,
-                height: 6,
-                decoration: BoxDecoration(
-                  color: dotColor,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 5),
-            ],
-            Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? _textPrimary : _textSecondary,
-                fontSize: 10,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                fontFamily: 'monospace',
-              ),
-            ),
-          ],
-        ),
-      ),
+    final localWorker = _workers.firstWhere(
+      (w) => w.role.contains('Host') || w.name.contains('YOU'),
+      orElse: () => _workers.first,
     );
-  }
 
-  // ---------------------------------------------------------------------------
-  // 5. High-Tech Sentry Data Table (Image 1 & Image 2)
-  // ---------------------------------------------------------------------------
-  Widget _buildSentryDataTable(bool isDark) {
-    final workers = _filteredWorkers;
+    final children = _getLocalNodeChildren(speedItSec);
+
+    // Apply search filter to children
+    final filteredChildren = children.where((c) {
+      if (_searchQuery.isEmpty) return true;
+      final q = _searchQuery.toLowerCase();
+      return (c['name'] as String).toLowerCase().contains(q) ||
+          (c['id'] as String).toLowerCase().contains(q) ||
+          (c['image'] as String).toLowerCase().contains(q) ||
+          (c['ports'] as String).toLowerCase().contains(q);
+    }).toList();
+
+    // Additional peer workers beyond local host
+    final peerWorkers = _filteredWorkers.where((w) => w.id != localWorker.id).toList();
+
+    final isLocalVisible = !_onlyShowActive || !localWorker.isExcluded;
 
     return Container(
       decoration: BoxDecoration(
         color: _cardBg,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: _borderColor,
-          width: 1.0,
-        ),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _borderColor),
       ),
       child: Column(
         children: [
-          // Table Header Row (matching Image 1 & 2 columns)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
-            decoration: BoxDecoration(
-              color: _cardSurfaceLight,
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(9),
-                topRight: Radius.circular(9),
-              ),
-              border: Border(
-                bottom: BorderSide(color: _borderColor, width: 1.0),
-              ),
-            ),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 32,
-                  child: Text(
-                    '#',
-                    style: TextStyle(
-                      color: _textMuted,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                ),
-                Expanded(
-                  flex: 3,
-                  child: Text(
-                    'NAME',
-                    style: TextStyle(
-                      color: _textMuted,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                ),
-                Expanded(
-                  flex: 2,
-                  child: Text(
-                    'CLUSTER / ROLE',
-                    style: TextStyle(
-                      color: _textMuted,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                ),
-                Expanded(
-                  flex: 3,
-                  child: Text(
-                    'HARDWARE & ID',
-                    style: TextStyle(
-                      color: _textMuted,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                ),
-                Expanded(
-                  flex: 2,
-                  child: Text(
-                    'STATUS',
-                    style: TextStyle(
-                      color: _textMuted,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                ),
-                Expanded(
-                  flex: 2,
-                  child: Text(
-                    'SOURCE / SPEED',
-                    style: TextStyle(
-                      color: _textMuted,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                ),
-                Expanded(
-                  flex: 2,
-                  child: Text(
-                    'PROGRESS & TIME',
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                      color: _textMuted,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 24),
-              ],
-            ),
-          ),
+          // Header Row
+          _buildDockerTableHeader(isDark),
 
-          if (workers.isEmpty)
+          // Host Node Parent Row (like local_dev_lab in Image 1)
+          if (isLocalVisible) ...[
+            _buildDockerParentRow(
+              isDark: isDark,
+              worker: localWorker,
+              cpuPercent: cpuPercent,
+              isExpanded: _isLocalExpanded,
+              onToggleExpand: () => setState(() => _isLocalExpanded = !_isLocalExpanded),
+              isSelected: _selectedNodeIds.contains(localWorker.id),
+              onSelect: (val) {
+                setState(() {
+                  if (val) {
+                    _selectedNodeIds.add(localWorker.id);
+                  } else {
+                    _selectedNodeIds.remove(localWorker.id);
+                  }
+                });
+              },
+            ),
+
+            // Child Rows (indented like proxy-1, backend-1, db-1 in Image 1)
+            if (_isLocalExpanded)
+              ...filteredChildren.map((c) => _buildDockerChildRow(
+                    isDark: isDark,
+                    id: c['id'] as String,
+                    name: c['name'] as String,
+                    nodeId: c['id'] as String,
+                    image: c['image'] as String,
+                    ports: c['ports'] as String,
+                    cpu: c['cpu'] as String,
+                    lastStarted: c['sync'] as String,
+                    dotColor: c['dotColor'] as Color,
+                    isSelected: _selectedNodeIds.contains(c['id']),
+                    onSelect: (val) {
+                      setState(() {
+                        if (val) {
+                          _selectedNodeIds.add(c['id'] as String);
+                        } else {
+                          _selectedNodeIds.remove(c['id'] as String);
+                        }
+                      });
+                    },
+                  )),
+          ],
+
+          // Peer Workers
+          ...peerWorkers.map((w) => _buildDockerPeerRow(
+                isDark: isDark,
+                worker: w,
+                isSelected: _selectedNodeIds.contains(w.id),
+                onSelect: (val) {
+                  setState(() {
+                    if (val) {
+                      _selectedNodeIds.add(w.id);
+                    } else {
+                      _selectedNodeIds.remove(w.id);
+                    }
+                  });
+                },
+              )),
+
+          if (!isLocalVisible && peerWorkers.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 40),
               child: Center(
@@ -1889,370 +1790,814 @@ class _FedAvgViewState extends State<FedAvgView> with SingleTickerProviderStateM
                     TextButton(
                       onPressed: () {
                         setState(() {
-                          _nodeFilter = 'ALL';
-                          _clusterFilter = 'ALL';
+                          _onlyShowActive = false;
                           _searchQuery = '';
                           _searchController.clear();
                         });
                       },
-                      child: const Text('Reset All Filters', style: TextStyle(color: Color(0xFF00F5A0))),
+                      child: const Text('Reset Filters', style: TextStyle(color: Color(0xFF00F5A0))),
                     ),
                   ],
                 ),
               ),
-            )
-          else
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: workers.length,
-              separatorBuilder: (_, _) => const Divider(
-                height: 1,
-                thickness: 1,
-                color: Color(0xFF141A29),
-              ),
-              itemBuilder: (context, index) {
-                final worker = workers[index];
-                final isExpanded = _expandedNodeId == worker.id;
-                final isHovered = _hoveredRowIndex == index;
-
-                return _buildSentryTableRow(
-                  worker: worker,
-                  index: index,
-                  isExpanded: isExpanded,
-                  isHovered: isHovered,
-                  isDark: isDark,
-                );
-              },
             ),
         ],
       ),
     );
   }
 
-  Widget _buildSentryTableRow({
+  Widget _buildDockerTableHeader(bool isDark) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      decoration: BoxDecoration(
+        color: _cardSurfaceLight,
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(7),
+          topRight: Radius.circular(7),
+        ),
+        border: Border(
+          bottom: BorderSide(color: _borderColor, width: 1.0),
+        ),
+      ),
+      child: Row(
+        children: [
+          // Select All Checkbox
+          SizedBox(
+            width: 26,
+            height: 26,
+            child: Checkbox(
+              value: _selectAll,
+              onChanged: (val) {
+                setState(() {
+                  _selectAll = val ?? false;
+                  if (_selectAll) {
+                    _selectedNodeIds.add('node_local');
+                    for (final c in _getLocalNodeChildren(49.0)) {
+                      _selectedNodeIds.add(c['id'] as String);
+                    }
+                    for (final w in _workers) {
+                      _selectedNodeIds.add(w.id);
+                    }
+                  } else {
+                    _selectedNodeIds.clear();
+                  }
+                });
+              },
+              activeColor: const Color(0xFF00F5A0),
+              checkColor: Colors.black,
+              side: const BorderSide(color: Color(0xFF475569), width: 1.3),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
+            ),
+          ),
+          const SizedBox(width: 16),
+          // Name
+          Expanded(
+            flex: 3,
+            child: Text(
+              'Name',
+              style: TextStyle(
+                color: _textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          // Node ID
+          Expanded(
+            flex: 2,
+            child: Text(
+              'Node ID',
+              style: TextStyle(
+                color: _textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          // Hardware & Model
+          Expanded(
+            flex: 3,
+            child: Text(
+              'Hardware & Model',
+              style: TextStyle(
+                color: _textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          // Port(s)
+          Expanded(
+            flex: 2,
+            child: Text(
+              'Port(s)',
+              style: TextStyle(
+                color: _textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          // CPU (%)
+          Expanded(
+            flex: 1,
+            child: Text(
+              'CPU (%)',
+              style: TextStyle(
+                color: _textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          // Last started
+          Expanded(
+            flex: 2,
+            child: Text(
+              'Last started',
+              style: TextStyle(
+                color: _textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          // Actions
+          SizedBox(
+            width: 88,
+            child: Text(
+              'Actions',
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: _textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDockerParentRow({
+    required bool isDark,
     required _SwarmWorkerItem worker,
-    required int index,
+    required double cpuPercent,
     required bool isExpanded,
-    required bool isHovered,
+    required VoidCallback onToggleExpand,
+    required bool isSelected,
+    required ValueChanged<bool> onSelect,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: _cardBg,
+        border: Border(
+          bottom: BorderSide(color: _borderColor.withValues(alpha: 0.5), width: 1.0),
+        ),
+      ),
+      child: Row(
+        children: [
+          // Checkbox
+          SizedBox(
+            width: 26,
+            height: 26,
+            child: Checkbox(
+              value: isSelected,
+              onChanged: (val) => onSelect(val ?? false),
+              activeColor: const Color(0xFF00F5A0),
+              checkColor: Colors.black,
+              side: const BorderSide(color: Color(0xFF475569), width: 1.3),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
+            ),
+          ),
+          const SizedBox(width: 4),
+          // Status dot
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              color: worker.isExcluded
+                  ? const Color(0xFFEF4444)
+                  : (_isPaused ? const Color(0xFFF59E0B) : const Color(0xFF00F5A0)),
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: (worker.isExcluded
+                          ? const Color(0xFFEF4444)
+                          : (_isPaused ? const Color(0xFFF59E0B) : const Color(0xFF00F5A0)))
+                      .withValues(alpha: 0.6),
+                  blurRadius: 5,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 5),
+          // Name with expand chevron (matching local_dev_lab in Image 1)
+          Expanded(
+            flex: 3,
+            child: Row(
+              children: [
+                InkWell(
+                  onTap: onToggleExpand,
+                  borderRadius: BorderRadius.circular(3),
+                  child: Padding(
+                    padding: const EdgeInsets.all(2.0),
+                    child: Icon(
+                      isExpanded ? Icons.keyboard_arrow_down_rounded : Icons.keyboard_arrow_right_rounded,
+                      size: 16,
+                      color: _textSecondary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    worker.name,
+                    style: TextStyle(
+                      color: _textPrimary,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF00F5A0).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(3),
+                    border: Border.all(color: const Color(0xFF00F5A0).withValues(alpha: 0.3)),
+                  ),
+                  child: const Text(
+                    'HOST',
+                    style: TextStyle(
+                      color: Color(0xFF00F5A0),
+                      fontSize: 8.5,
+                      fontWeight: FontWeight.w800,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Node ID
+          Expanded(
+            flex: 2,
+            child: Text(
+              worker.id,
+              style: TextStyle(
+                color: _textSecondary,
+                fontSize: 12,
+                fontFamily: 'monospace',
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          // Hardware & Model
+          Expanded(
+            flex: 3,
+            child: Text(
+              '${worker.hardware} • Llama 3 8B',
+              style: TextStyle(
+                color: _textSecondary,
+                fontSize: 12,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          // Port(s)
+          Expanded(
+            flex: 2,
+            child: InkWell(
+              onTap: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Swarm gRPC server listening on 0.0.0.0:50051'),
+                    duration: Duration(seconds: 1),
+                    backgroundColor: Color(0xFF38BDF8),
+                  ),
+                );
+              },
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '50051:50051',
+                    style: TextStyle(
+                      color: Color(0xFF38BDF8),
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                  SizedBox(width: 3),
+                  Icon(Icons.open_in_new_rounded, size: 10, color: Color(0xFF38BDF8)),
+                ],
+              ),
+            ),
+          ),
+          // CPU (%)
+          Expanded(
+            flex: 1,
+            child: Text(
+              '${cpuPercent.toStringAsFixed(1)}%',
+              style: TextStyle(
+                color: _textSecondary,
+                fontSize: 12,
+                fontFamily: 'monospace',
+              ),
+            ),
+          ),
+          // Last started
+          Expanded(
+            flex: 2,
+            child: Text(
+              '${worker.localEpoch} • Just now',
+              style: TextStyle(
+                color: _textSecondary,
+                fontSize: 11.5,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          // Actions
+          SizedBox(
+            width: 88,
+            child: _buildDockerActionButtons(
+              isRunning: !_isPaused && !worker.isExcluded,
+              onToggle: _togglePauseTraining,
+              onMenu: () => _inspectNode(worker.id),
+              onDelete: () => _toggleExcludeNode(worker.id, worker.name),
+              isDark: isDark,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDockerChildRow({
+    required bool isDark,
+    required String id,
+    required String name,
+    required String nodeId,
+    required String image,
+    required String ports,
+    required String cpu,
+    required String lastStarted,
+    required Color dotColor,
+    required bool isSelected,
+    required ValueChanged<bool> onSelect,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+      decoration: BoxDecoration(
+        color: _cardBg.withValues(alpha: 0.7),
+        border: Border(
+          bottom: BorderSide(color: _borderColor.withValues(alpha: 0.35), width: 1.0),
+        ),
+      ),
+      child: Row(
+        children: [
+          // Checkbox
+          SizedBox(
+            width: 26,
+            height: 26,
+            child: Checkbox(
+              value: isSelected,
+              onChanged: (val) => onSelect(val ?? false),
+              activeColor: const Color(0xFF00F5A0),
+              checkColor: Colors.black,
+              side: const BorderSide(color: Color(0xFF475569), width: 1.3),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
+            ),
+          ),
+          const SizedBox(width: 4),
+          // Status dot
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              color: dotColor,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: dotColor.withValues(alpha: 0.6),
+                  blurRadius: 4,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 5),
+          // Name (indented with left margin, matching proxy-1 in Image 1)
+          Expanded(
+            flex: 3,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 24),
+              child: Text(
+                name,
+                style: TextStyle(
+                  color: _textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+          // Node ID
+          Expanded(
+            flex: 2,
+            child: Text(
+              nodeId,
+              style: TextStyle(
+                color: _textMuted,
+                fontSize: 11.5,
+                fontFamily: 'monospace',
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          // Hardware & Model (Image in Docker)
+          Expanded(
+            flex: 3,
+            child: Text(
+              image,
+              style: TextStyle(
+                color: _textSecondary,
+                fontSize: 12,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          // Port(s)
+          Expanded(
+            flex: 2,
+            child: ports.contains('↗')
+                ? InkWell(
+                    onTap: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('$name active on $ports'),
+                          duration: const Duration(seconds: 1),
+                          backgroundColor: const Color(0xFF38BDF8),
+                        ),
+                      );
+                    },
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            ports.replaceAll(' ↗', ''),
+                            style: const TextStyle(
+                              color: Color(0xFF38BDF8),
+                              fontSize: 11.5,
+                              fontFamily: 'monospace',
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 3),
+                        const Icon(Icons.open_in_new_rounded, size: 10, color: Color(0xFF38BDF8)),
+                      ],
+                    ),
+                  )
+                : Text(
+                    ports,
+                    style: TextStyle(
+                      color: _textMuted,
+                      fontSize: 11.5,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+          ),
+          // CPU (%)
+          Expanded(
+            flex: 1,
+            child: Text(
+              cpu,
+              style: TextStyle(
+                color: _textSecondary,
+                fontSize: 11.5,
+                fontFamily: 'monospace',
+              ),
+            ),
+          ),
+          // Last started
+          Expanded(
+            flex: 2,
+            child: Text(
+              lastStarted,
+              style: TextStyle(
+                color: _textMuted,
+                fontSize: 11.5,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          // Actions
+          SizedBox(
+            width: 88,
+            child: _buildDockerActionButtons(
+              isRunning: true,
+              onToggle: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('$name shard state updated'),
+                    duration: const Duration(seconds: 1),
+                    backgroundColor: const Color(0xFF00F5A0),
+                  ),
+                );
+              },
+              onMenu: () => _inspectNode(id),
+              onDelete: () => _toggleExcludeNode(id, name),
+              isDark: isDark,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDockerPeerRow({
+    required bool isDark,
+    required _SwarmWorkerItem worker,
+    required bool isSelected,
+    required ValueChanged<bool> onSelect,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: _cardBg,
+        border: Border(
+          bottom: BorderSide(color: _borderColor.withValues(alpha: 0.4), width: 1.0),
+        ),
+      ),
+      child: Row(
+        children: [
+          // Checkbox
+          SizedBox(
+            width: 26,
+            height: 26,
+            child: Checkbox(
+              value: isSelected,
+              onChanged: (val) => onSelect(val ?? false),
+              activeColor: const Color(0xFF00F5A0),
+              checkColor: Colors.black,
+              side: const BorderSide(color: Color(0xFF475569), width: 1.3),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
+            ),
+          ),
+          const SizedBox(width: 4),
+          // Status dot
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              color: worker.isExcluded ? const Color(0xFFEF4444) : worker.statusColor,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: (worker.isExcluded ? const Color(0xFFEF4444) : worker.statusColor)
+                      .withValues(alpha: 0.6),
+                  blurRadius: 5,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 5),
+          // Name
+          Expanded(
+            flex: 3,
+            child: Text(
+              worker.name,
+              style: TextStyle(
+                color: _textPrimary,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          // Node ID
+          Expanded(
+            flex: 2,
+            child: Text(
+              worker.id,
+              style: TextStyle(
+                color: _textSecondary,
+                fontSize: 12,
+                fontFamily: 'monospace',
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          // Hardware & Model
+          Expanded(
+            flex: 3,
+            child: Text(
+              worker.hardware,
+              style: TextStyle(
+                color: _textSecondary,
+                fontSize: 12,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          // Port(s)
+          Expanded(
+            flex: 2,
+            child: Text(
+              '${worker.pingMs} ms',
+              style: TextStyle(
+                color: _textSecondary,
+                fontSize: 12,
+                fontFamily: 'monospace',
+              ),
+            ),
+          ),
+          // CPU (%)
+          Expanded(
+            flex: 1,
+            child: Text(
+              '${worker.speedItSec.toStringAsFixed(1)}/s',
+              style: TextStyle(
+                color: _textSecondary,
+                fontSize: 12,
+                fontFamily: 'monospace',
+              ),
+            ),
+          ),
+          // Last started
+          Expanded(
+            flex: 2,
+            child: Text(
+              worker.localEpoch,
+              style: TextStyle(
+                color: _textSecondary,
+                fontSize: 11.5,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          // Actions
+          SizedBox(
+            width: 88,
+            child: _buildDockerActionButtons(
+              isRunning: !worker.isExcluded && worker.status != 'Paused',
+              onToggle: () {
+                setState(() {
+                  worker.status = worker.status == 'Paused' ? 'Training' : 'Paused';
+                });
+              },
+              onMenu: () => _inspectNode(worker.id),
+              onDelete: () => _toggleExcludeNode(worker.id, worker.name),
+              isDark: isDark,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDockerActionButtons({
+    required bool isRunning,
+    required VoidCallback onToggle,
+    required VoidCallback onMenu,
+    required VoidCallback onDelete,
     required bool isDark,
   }) {
-    // Determine status color matching Image 1
-    Color statusTextColor;
-    String statusLabel = worker.status;
-    if (worker.isExcluded) {
-      statusTextColor = const Color(0xFFEF4444);
-      statusLabel = 'Excluded';
-    } else {
-      switch (worker.status) {
-        case 'Training':
-          statusTextColor = const Color(0xFF38BDF8); // Cyan
-          break;
-        case 'Synced':
-          statusTextColor = const Color(0xFF00F5A0); // Emerald
-          break;
-        case 'Syncing':
-          statusTextColor = const Color(0xFFA855F7); // Purple
-          break;
-        case 'Lagging':
-          statusTextColor = const Color(0xFFF59E0B); // Amber / Orange
-          break;
-        default:
-          statusTextColor = const Color(0xFF94A3B8);
-      }
-    }
-
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hoveredRowIndex = index),
-      onExit: (_) => setState(() => _hoveredRowIndex = null),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 140),
-        decoration: BoxDecoration(
-          color: isExpanded
-              ? _cardSurfaceLight
-              : (isHovered ? _cardSurfaceHover : _cardBg),
-          border: Border(
-            left: BorderSide(
-              color: isExpanded
-                  ? const Color(0xFF00F5A0)
-                  : (isHovered ? const Color(0xFF38BDF8) : Colors.transparent),
-              width: 3.0,
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Stop/Pause square button (matching Image 1)
+        InkWell(
+          onTap: onToggle,
+          borderRadius: BorderRadius.circular(4),
+          child: Container(
+            width: 22,
+            height: 22,
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Icon(
+              isRunning ? Icons.stop_rounded : Icons.play_arrow_rounded,
+              size: 13,
+              color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
             ),
           ),
         ),
-        child: Column(
-          children: [
-            InkWell(
-              onTap: () {
-                setState(() {
-                  _expandedNodeId = isExpanded ? null : worker.id;
-                });
-              },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: Row(
-                  children: [
-                    // Col 1: #
-                    SizedBox(
-                      width: 32,
-                      child: Text(
-                        '${index + 1}',
-                        style: TextStyle(
-                          color: isHovered ? const Color(0xFF00F5A0) : _textMuted,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          fontFamily: 'monospace',
-                        ),
-                      ),
-                    ),
-
-                    // Col 2: NAME (bold title + host badge)
-                    Expanded(
-                      flex: 3,
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Flexible(
-                                      child: Text(
-                                        worker.name,
-                                        style: TextStyle(
-                                          color: worker.isExcluded ? _textMuted : _textPrimary,
-                                          fontSize: 12.5,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                    if (worker.role.contains('Host')) ...[
-                                      const SizedBox(width: 6),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFF00F5A0).withValues(alpha: 0.15),
-                                          borderRadius: BorderRadius.circular(3),
-                                        ),
-                                        child: const Text(
-                                          'HOST',
-                                          style: TextStyle(
-                                            color: Color(0xFF00F5A0),
-                                            fontSize: 8.5,
-                                            fontWeight: FontWeight.w800,
-                                            fontFamily: 'monospace',
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  worker.localEpoch,
-                                  style: TextStyle(
-                                    color: _textMuted,
-                                    fontSize: 10,
-                                    fontFamily: 'monospace',
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // Col 3: CLUSTER / ROLE
-                    Expanded(
-                      flex: 2,
-                      child: Row(
-                        children: [
-                          Icon(worker.icon, size: 14, color: worker.iconColor),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              worker.cluster,
-                              style: TextStyle(
-                                color: _textSecondary,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // Col 4: HARDWARE & ID (Monospace ID with link icon matching Image 1)
-                    Expanded(
-                      flex: 3,
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '${worker.id} • ${worker.hardware}',
-                                  style: TextStyle(
-                                    color: _textSecondary,
-                                    fontSize: 11,
-                                    fontFamily: 'monospace',
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  '${worker.tflops} • ${worker.vram}',
-                                  style: TextStyle(
-                                    color: _textMuted,
-                                    fontSize: 9.5,
-                                    fontFamily: 'monospace',
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Icon(Icons.open_in_new_rounded, size: 12, color: _textMuted),
-                        ],
-                      ),
-                    ),
-
-                    // Col 5: STATUS (Colored cyber text matching Image 1)
-                    Expanded(
-                      flex: 2,
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          statusLabel,
-                          style: TextStyle(
-                            color: statusTextColor,
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.3,
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    // Col 6: SOURCE / SPEED (Sleek bordered pill button matching Image 1)
-                    Expanded(
-                      flex: 2,
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: _cardSurfaceLight,
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(
-                              color: _borderColor,
-                              width: 0.9,
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.bolt_rounded, size: 11, color: Color(0xFF00F5A0)),
-                              const SizedBox(width: 4),
-                              Text(
-                                '${worker.speedItSec.toStringAsFixed(1)} it/s',
-                                style: TextStyle(
-                                  color: _textSecondary,
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w600,
-                                  fontFamily: 'monospace',
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    // Col 7: PROGRESS & TIME
-                    Expanded(
-                      flex: 2,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              Text(
-                                '${(worker.progress * 100).toInt()}%',
-                                style: TextStyle(
-                                  color: _textPrimary,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  fontFamily: 'monospace',
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                worker.timeLeft,
-                                style: TextStyle(
-                                  color: _textMuted,
-                                  fontSize: 10,
-                                  fontFamily: 'monospace',
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 5),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(2),
-                            child: SizedBox(
-                              width: 100,
-                              height: 3.5,
-                              child: LinearProgressIndicator(
-                                value: worker.progress,
-                                backgroundColor: _isLight ? const Color(0xFFE2E8F0) : const Color(0x33FFFFFF),
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  worker.progress >= 1.0 ? const Color(0xFF00F5A0) : const Color(0xFF38BDF8),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // Chevron >
-                    SizedBox(
-                      width: 24,
-                      child: Center(
-                        child: AnimatedRotation(
-                          turns: isExpanded ? 0.25 : 0.0,
-                          duration: const Duration(milliseconds: 180),
-                          child: Icon(
-                            Icons.chevron_right_rounded,
-                            size: 16,
-                            color: _textMuted,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+        const SizedBox(width: 8),
+        // Three dots overflow menu
+        InkWell(
+          onTap: onMenu,
+          borderRadius: BorderRadius.circular(4),
+          child: const Padding(
+            padding: EdgeInsets.all(2.0),
+            child: Icon(
+              Icons.more_vert_rounded,
+              size: 16,
+              color: Color(0xFF64748B),
             ),
-
-            // Expandable High-Tech Detail Drawer
-            if (isExpanded)
-              _buildExpandedNodeDrawer(worker, isDark),
-          ],
+          ),
         ),
-      ),
+        const SizedBox(width: 8),
+        // Trash can button
+        InkWell(
+          onTap: onDelete,
+          borderRadius: BorderRadius.circular(4),
+          child: const Padding(
+            padding: EdgeInsets.all(2.0),
+            child: Icon(
+              Icons.delete_outline_rounded,
+              size: 16,
+              color: Color(0xFF64748B),
+            ),
+          ),
+        ),
+      ],
     );
+  }
+
+  List<Map<String, dynamic>> _getLocalNodeChildren(double speedItSec) {
+    return [
+      {
+        'id': 'shard-gpu-001',
+        'name': 'Host Iris Xe Compute Core',
+        'image': 'Intel(R) Iris(R) Xe Graphics',
+        'ports': 'PCIe Direct',
+        'cpu': '${speedItSec.toStringAsFixed(1)} it/s',
+        'sync': 'Active Shard',
+        'dotColor': const Color(0xFF00F5A0),
+      },
+      {
+        'id': 'port-50051',
+        'name': 'gRPC Swarm Listener',
+        'image': '0.0.0.0:50051 (mTLS)',
+        'ports': '50051:50051 ↗',
+        'cpu': '0.0%',
+        'sync': 'Listening',
+        'dotColor': const Color(0xFF38BDF8),
+      },
+      {
+        'id': 'stun-nat-001',
+        'name': 'STUN NAT Gateway',
+        'image': 'RFC 5389 NAT Traversal',
+        'ports': '117.239.252.50:63492 ↗',
+        'cpu': '0 ms',
+        'sync': 'Direct STUN',
+        'dotColor': const Color(0xFFA855F7),
+      },
+      {
+        'id': 'shard-int8-01',
+        'name': 'Llama 3 INT8 Shard Buffer',
+        'image': 'Llama 3 (8B Instruct)',
+        'ports': 'Cache 256 MB',
+        'cpu': '100% Score',
+        'sync': 'Synced INT8',
+        'dotColor': const Color(0xFF00F5A0),
+      },
+    ];
+  }
+
+  void _toggleExcludeNode(String id, String name) {
+    setState(() {
+      final worker = _workers.firstWhere((w) => w.id == id, orElse: () => _workers.first);
+      worker.isExcluded = !worker.isExcluded;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            worker.isExcluded
+                ? '$name excluded from swarm quorum'
+                : '$name restored to active swarm quorum',
+          ),
+          duration: const Duration(seconds: 2),
+          backgroundColor: worker.isExcluded ? const Color(0xFFF59E0B) : const Color(0xFF00F5A0),
+        ),
+      );
+    });
   }
 
   Widget _buildExpandedNodeDrawer(_SwarmWorkerItem worker, bool isDark) {
