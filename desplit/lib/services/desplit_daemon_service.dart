@@ -28,6 +28,8 @@ class DeSplitDaemonService {
       ValueNotifier<List<MeshNode>>([]);
   final ValueNotifier<Map<String, dynamic>?> fedAvgState =
       ValueNotifier<Map<String, dynamic>?>(null);
+  final ValueNotifier<Map<String, dynamic>?> networkState =
+      ValueNotifier<Map<String, dynamic>?>(null);
 
   bool _isInitialized = false;
 
@@ -40,10 +42,12 @@ class DeSplitDaemonService {
     _fetchHardware();
     _fetchCluster();
     _fetchFedAvg();
+    _fetchNetwork();
 
     // High frequency metrics polling (every 1.5 seconds)
     _metricsTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) {
       _fetchHardware();
+      _fetchNetwork();
     });
 
     // Cluster state and FedAvg polling (every 2.5 seconds)
@@ -147,6 +151,22 @@ class DeSplitDaemonService {
         final body = await response.transform(utf8.decoder).join();
         final data = jsonDecode(body) as Map<String, dynamic>;
         fedAvgState.value = data;
+      }
+    } catch (_) {
+      // Keep existing cache
+    }
+  }
+
+  /// Poll Live Network State & Events
+  Future<void> _fetchNetwork() async {
+    try {
+      final uri = Uri.parse('$daemonBaseUrl/api/v1/network');
+      final request = await _httpClient.getUrl(uri);
+      final response = await request.close();
+      if (response.statusCode == 200) {
+        final body = await response.transform(utf8.decoder).join();
+        final data = jsonDecode(body) as Map<String, dynamic>;
+        networkState.value = data;
       }
     } catch (_) {
       // Keep existing cache

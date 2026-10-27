@@ -696,7 +696,7 @@ class _FedAvgViewState extends State<FedAvgView> with SingleTickerProviderStateM
               ),
               const SizedBox(width: 10),
               const Text(
-                'FEDAVG SWARM SENTRY',
+                'Welcome Back...',
                 style: TextStyle(
                   color: Color(0xFF00F5A0),
                   fontSize: 13,

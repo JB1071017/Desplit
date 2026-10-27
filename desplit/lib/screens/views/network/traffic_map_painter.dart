@@ -1,17 +1,41 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'network_models.dart';
 import 'world_atlas_service.dart';
 
 class TrafficMapPainter extends CustomPainter {
   final double animationProgress;
   final bool isLightMode;
   final bool isGlobeMode;
+  final List<MeshNode> nodes;
 
   TrafficMapPainter({
     required this.animationProgress,
     this.isLightMode = false,
     this.isGlobeMode = false,
+    this.nodes = const [],
   });
+
+  static Offset _getNodeGeo(MeshNode node, int index, int total) {
+    if (node.isUser) {
+      final tzHours = DateTime.now().timeZoneOffset.inMinutes / 60.0;
+      if (tzHours >= 5.0 && tzHours <= 6.0) {
+        return const Offset(77.59, 12.97); // India
+      }
+      final approxLon = (tzHours * 15.0).clamp(-180.0, 180.0);
+      return Offset(approxLon, 37.77);
+    }
+    const peerCoords = [
+      Offset(8.68, 50.11),    // Central Europe
+      Offset(139.69, 35.68),  // East Asia
+      Offset(-77.48, 39.04),  // US East
+      Offset(103.82, 1.35),   // SE Asia
+      Offset(-0.12, 51.50),   // Western Europe
+      Offset(151.20, -33.86), // Oceania
+    ];
+    final idx = (index - 1).clamp(0, peerCoords.length - 1);
+    return peerCoords[idx];
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -68,96 +92,97 @@ class TrafficMapPainter extends CustomPainter {
 
     final atlas = WorldAtlasService.instance;
     if (atlas.isLoaded && atlas.normalizedFlatPath != null) {
-      // Draw the exact countries and borders from countries-110m.json
       canvas.save();
       canvas.scale(w, h);
       canvas.drawPath(atlas.normalizedFlatPath!, landPaint);
       canvas.drawPath(atlas.normalizedFlatPath!, landStroke);
       canvas.restore();
     } else {
-      // Fallback while loading
       _drawFallbackContinents(canvas, size, landPaint, landStroke);
     }
 
-    // Exact Geo Locations of Global Mesh Transit Hubs
-    final hubUSEast = _geoToFlat(Offset(-77.48, 39.04), w, h); // Virginia
-    final hubFrankfurt = _geoToFlat(Offset(8.68, 50.11), w, h); // Frankfurt
-    final hubTokyo = _geoToFlat(Offset(139.69, 35.68), w, h); // Tokyo
-    final hubUSWest = _geoToFlat(Offset(-122.08, 37.38), w, h); // Silicon Valley
-    final hubMumbai = _geoToFlat(Offset(72.87, 19.07), w, h); // Mumbai
-    final hubSydney = _geoToFlat(Offset(151.20, -33.86), w, h); // Sydney
-    final hubSaoPaulo = _geoToFlat(Offset(-46.63, -23.55), w, h); // Sao Paulo
-    final hubLondon = _geoToFlat(Offset(-0.12, 51.50), w, h); // London
+    // Real Registered Mesh Nodes
+    final effectiveNodes = nodes.isNotEmpty
+        ? nodes
+        : const [
+            MeshNode(
+              id: 'local_node',
+              title: 'OPERATOR (YOU)',
+              username: '@operator',
+              gpu: 'Intel Iris Xe',
+              contribution: '48.4 GFLOPS',
+              latency: '0 ms',
+              region: 'Local Tier 0',
+              relativePos: Offset(0.5, 0.5),
+              icon: Icons.memory_rounded,
+              isUser: true,
+            ),
+          ];
 
-    // Global Tensor Transit Arcs
-    // 1. Virginia <-> Frankfurt
-    _drawCurvedTrafficArc(
-      canvas,
-      hubUSEast,
-      hubFrankfurt,
-      isLightMode ? const Color(0xFF8B5CF6) : const Color(0xFFC084FC),
-      animationProgress,
-      heightOffset: -h * 0.18,
-    );
+    final List<Offset> realScreenHubs = [];
+    for (int i = 0; i < effectiveNodes.length; i++) {
+      final node = effectiveNodes[i];
+      final geo = _getNodeGeo(node, i, effectiveNodes.length);
+      final hub = _geoToFlat(geo, w, h);
+      realScreenHubs.add(hub);
 
-    // 2. Frankfurt <-> Tokyo (Highlighted Amber Tensor Route)
-    _drawCurvedTrafficArc(
-      canvas,
-      hubFrankfurt,
-      hubTokyo,
-      const Color(0xFFF97316),
-      (animationProgress + 0.38) % 1.0,
-      heightOffset: -h * 0.22,
-    );
+      final isUser = node.isUser;
+      final color = isUser ? const Color(0xFF00F5A0) : const Color(0xFF38BDF8);
 
-    // 3. Silicon Valley <-> Mumbai
-    _drawCurvedTrafficArc(
-      canvas,
-      hubUSWest,
-      hubMumbai,
-      isLightMode ? const Color(0xFF7C3AED) : const Color(0xFFA855F7),
-      (animationProgress + 0.72) % 1.0,
-      heightOffset: -h * 0.26,
-    );
-
-    // 4. London <-> Sao Paulo
-    _drawCurvedTrafficArc(
-      canvas,
-      hubLondon,
-      hubSaoPaulo,
-      isLightMode ? const Color(0xFF9333EA) : const Color(0xFFE879F9),
-      (animationProgress + 0.54) % 1.0,
-      heightOffset: -h * 0.12,
-    );
-
-    // Major Hub Pins
-    final majorHubs = [
-      hubUSEast,
-      hubUSWest,
-      hubFrankfurt,
-      hubTokyo,
-      hubMumbai,
-      hubSydney,
-      hubSaoPaulo,
-      hubLondon,
-    ];
-
-    for (final hub in majorHubs) {
+      final auraRadius = 4.5 + 2.5 * math.sin(animationProgress * math.pi * 2);
       canvas.drawCircle(
         hub,
-        4.5,
+        auraRadius + 2,
         Paint()
-          ..color = (isLightMode ? const Color(0xFF8B5CF6) : const Color(0xFFC084FC))
-              .withValues(alpha: 0.35)
+          ..color = color.withValues(alpha: 0.25)
           ..style = PaintingStyle.fill,
       );
       canvas.drawCircle(
         hub,
-        2.2,
+        4.0,
         Paint()
-          ..color = isLightMode ? const Color(0xFF7C3AED) : Colors.white
+          ..color = color
           ..style = PaintingStyle.fill,
       );
+      canvas.drawCircle(
+        hub,
+        1.8,
+        Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.fill,
+      );
+
+      final tp = TextPainter(
+        text: TextSpan(
+          text: node.title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 8,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final bgRect = Rect.fromLTWH(hub.dx - tp.width / 2 - 4, hub.dy + 7, tp.width + 8, tp.height + 2);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(bgRect, const Radius.circular(3)),
+        Paint()..color = const Color(0xFF0F172A).withValues(alpha: 0.8),
+      );
+      tp.paint(canvas, Offset(hub.dx - tp.width / 2, hub.dy + 8));
+    }
+
+    // Connect real nodes with Great Circle routes ONLY if peers are present
+    if (effectiveNodes.length > 1) {
+      final userHub = realScreenHubs.first;
+      for (int i = 1; i < realScreenHubs.length; i++) {
+        _drawCurvedTrafficArc(
+          canvas,
+          userHub,
+          realScreenHubs[i],
+          const Color(0xFF00F5A0),
+          (animationProgress + (i * 0.25)) % 1.0,
+        );
+      }
     }
   }
 
@@ -323,55 +348,98 @@ class TrafficMapPainter extends CustomPainter {
     canvas.drawPath(combinedLandPath, landPaint);
     canvas.drawPath(combinedLandPath, landStroke);
 
-    // 5. Projected 3D Transit Arcs & City Hubs
-    final hubs = <_GlobeHub>[
-      _GlobeHub('Virginia', -77.48, 39.04, const Color(0xFFC084FC)),
-      _GlobeHub('Frankfurt', 8.68, 50.11, const Color(0xFFFB923C)),
-      _GlobeHub('Tokyo', 139.69, 35.68, const Color(0xFFF97316)),
-      _GlobeHub('Mumbai', 72.87, 19.07, const Color(0xFF00F5A0)),
-      _GlobeHub('London', -0.12, 51.50, const Color(0xFFA855F7)),
-      _GlobeHub('Silicon Valley', -122.08, 37.38, const Color(0xFF38BDF8)),
-      _GlobeHub('Sydney', 151.20, -33.86, const Color(0xFFA78BFA)),
-    ];
+    // 5. Projected 3D Live Real Mesh Nodes
+    final effectiveNodes = nodes.isNotEmpty
+        ? nodes
+        : const [
+            MeshNode(
+              id: 'local_node',
+              title: 'OPERATOR (YOU)',
+              username: '@operator',
+              gpu: 'Intel Iris Xe',
+              contribution: '48.4 GFLOPS',
+              latency: '0 ms',
+              region: 'Local Tier 0',
+              relativePos: Offset(0.5, 0.5),
+              icon: Icons.memory_rounded,
+              isUser: true,
+            ),
+          ];
 
-    // Compute hub visibility and screen coordinates
-    final hubScreenPositions = <String, Offset>{};
-    for (final hub in hubs) {
-      final lam = hub.lon * math.pi / 180.0 - lonRotation;
-      final phi = hub.lat * math.pi / 180.0;
+    final Map<int, Offset> hubScreenPositions = {};
+    for (int i = 0; i < effectiveNodes.length; i++) {
+      final node = effectiveNodes[i];
+      final geo = _getNodeGeo(node, i, effectiveNodes.length);
+      final lam = geo.dx * math.pi / 180.0 - lonRotation;
+      final phi = geo.dy * math.pi / 180.0;
       final cosC = sinTilt * math.sin(phi) + cosTilt * math.cos(phi) * math.cos(lam);
 
-      if (cosC > 0.08) {
+      if (cosC > 0.05) {
         final px = center.dx + radius * math.cos(phi) * math.sin(lam);
         final py = center.dy - radius * (cosTilt * math.sin(phi) - sinTilt * math.cos(phi) * math.cos(lam));
-        hubScreenPositions[hub.name] = Offset(px, py);
+        final pos = Offset(px, py);
+        hubScreenPositions[i] = pos;
+
+        final isUser = node.isUser;
+        final color = isUser ? const Color(0xFF00F5A0) : const Color(0xFF38BDF8);
 
         // Pulsing glow aura
-        final auraRadius = 3.5 + 2.0 * math.sin(animationProgress * math.pi * 2);
+        final auraRadius = 4.0 + 3.0 * math.sin(animationProgress * math.pi * 2);
         canvas.drawCircle(
-          Offset(px, py),
-          auraRadius,
+          pos,
+          auraRadius + 2,
           Paint()
-            ..color = hub.color.withValues(alpha: 0.35)
+            ..color = color.withValues(alpha: 0.25)
             ..style = PaintingStyle.fill,
         );
         // Solid Hub Pin
         canvas.drawCircle(
-          Offset(px, py),
-          2.2,
+          pos,
+          3.5,
+          Paint()
+            ..color = color
+            ..style = PaintingStyle.fill,
+        );
+        canvas.drawCircle(
+          pos,
+          1.5,
           Paint()
             ..color = Colors.white
             ..style = PaintingStyle.fill,
         );
+
+        // Text Badge
+        final tp = TextPainter(
+          text: TextSpan(
+            text: '${node.title}\n${isUser ? "OPERATOR • LISTENING" : node.latency}',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 7.5,
+              fontWeight: FontWeight.w700,
+              height: 1.15,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+
+        final labelRect = Rect.fromLTWH(px + 7, py - 9, tp.width + 8, tp.height + 4);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(labelRect, const Radius.circular(4)),
+          Paint()..color = const Color(0xFF0F172A).withValues(alpha: 0.85),
+        );
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(labelRect, const Radius.circular(4)),
+          Paint()
+            ..color = color.withValues(alpha: 0.4)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 0.7,
+        );
+        tp.paint(canvas, Offset(px + 11, py - 7));
       }
     }
 
     // Draw Great Circle Arcs between visible hubs
-    void drawGlobeArc(String from, String to, Color color, double progress) {
-      final p1 = hubScreenPositions[from];
-      final p2 = hubScreenPositions[to];
-      if (p1 == null || p2 == null) return;
-
+    void drawGlobeArc(Offset p1, Offset p2, Color color, double progress) {
       final midX = (p1.dx + p2.dx) / 2;
       final midY = (p1.dy + p2.dy) / 2;
       final toCenter = Offset(midX - center.dx, midY - center.dy);
@@ -406,9 +474,16 @@ class TrafficMapPainter extends CustomPainter {
       );
     }
 
-    drawGlobeArc('Frankfurt', 'Tokyo', const Color(0xFFF97316), (animationProgress + 0.38) % 1.0);
-    drawGlobeArc('Virginia', 'Frankfurt', const Color(0xFFC084FC), animationProgress);
-    drawGlobeArc('Frankfurt', 'Mumbai', const Color(0xFF00F5A0), (animationProgress + 0.72) % 1.0);
+    // Draw real Great Circle Arcs ONLY between real connected nodes
+    if (effectiveNodes.length > 1 && hubScreenPositions.containsKey(0)) {
+      final pUser = hubScreenPositions[0]!;
+      for (int i = 1; i < effectiveNodes.length; i++) {
+        final pPeer = hubScreenPositions[i];
+        if (pPeer != null) {
+          drawGlobeArc(pUser, pPeer, const Color(0xFF00F5A0), (animationProgress + (i * 0.3)) % 1.0);
+        }
+      }
+    }
 
     canvas.restore();
 
@@ -515,13 +590,4 @@ class TrafficMapPainter extends CustomPainter {
   bool shouldRepaint(covariant TrafficMapPainter oldDelegate) {
     return true;
   }
-}
-
-class _GlobeHub {
-  final String name;
-  final double lon;
-  final double lat;
-  final Color color;
-
-  const _GlobeHub(this.name, this.lon, this.lat, this.color);
 }
