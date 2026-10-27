@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import '../../services/desplit_daemon_service.dart';
 import '../../services/theme_service.dart';
 import '../../theme/app_colors.dart';
 import 'telemetry/telemetry_chart_painter.dart';
@@ -16,7 +16,6 @@ class TelementaryView extends StatefulWidget {
 class _TelementaryViewState extends State<TelementaryView> {
   int _selectedDeviceIndex = 5; // Default: GPU 0
   Timer? _tickerTimer;
-  final math.Random _random = math.Random();
 
   // Mode Toggle: false = Host / System Performance, true = My Swarm Contributions
   bool _isContributionMode = false;
@@ -54,7 +53,7 @@ class _TelementaryViewState extends State<TelementaryView> {
 
   double _cpuValue = 34.0;
   double _cpuSpeed = 1.00;
-  final double _memoryValue = 12.7; // out of 15.8 GB
+  double _memoryValue = 12.7; // out of 15.8 GB
   double _diskValue = 6.0;
 
   // -------------------------------------------------------------
@@ -129,71 +128,60 @@ class _TelementaryViewState extends State<TelementaryView> {
     _contribGpuProcHistory = [42, 45, 50, 47, 52, 55, 49, 44, 46, 51, 48, 45, 49, 53, 47, 44, 48, 51, 46, 49, 47, 50, 48, 48];
     _contribGpuVramHistory = List.filled(24, 0.70);
 
-    // Live update ticker simulating Windows Task Manager performance polling
-    _tickerTimer = Timer.periodic(const Duration(milliseconds: 1200), (timer) {
+    // Subscribe to live real-time telemetry from DeSplitDaemonService
+    DeSplitDaemonService.instance.hardwareMetrics.addListener(_onDaemonTelemetry);
+    DeSplitDaemonService.instance.clusterState.addListener(_onDaemonTelemetry);
+    _onDaemonTelemetry();
+
+    // Secondary smooth micro-animation ticker for fluid chart movement
+    _tickerTimer = Timer.periodic(const Duration(milliseconds: 1500), (timer) {
       if (!mounted) return;
-      setState(() {
-        // --- 1. Host Fluctuation ---
-        _gpu3DValue = (_gpu3DValue + (_random.nextDouble() * 6 - 3)).clamp(6.0, 38.0);
-        _gpu3DHistory = [..._gpu3DHistory.sublist(1), _gpu3DValue];
+      _onDaemonTelemetry();
+    });
+  }
 
-        _amd3DValue = (_amd3DValue + (_random.nextDouble() * 5 - 2.5)).clamp(10.0, 45.0);
-        _amd3DHistory = [..._amd3DHistory.sublist(1), _amd3DValue];
+  void _onDaemonTelemetry() {
+    if (!mounted) return;
+    final hw = DeSplitDaemonService.instance.hardwareMetrics.value;
+    final cluster = DeSplitDaemonService.instance.clusterState.value;
 
-        _amdDedicatedMemValue = (_amdDedicatedMemValue + (_random.nextDouble() * 0.04 - 0.02)).clamp(2.3, 2.6);
-        _amdDedicatedMemHistory = [..._amdDedicatedMemHistory.sublist(1), _amdDedicatedMemValue];
+    setState(() {
+      if (hw != null) {
+        final rt = hw['realtime'] as Map<String, dynamic>?;
+        if (rt != null) {
+          _cpuValue = (rt['cpu_percent'] as num?)?.toDouble() ?? _cpuValue;
+          _cpuSpeed = (rt['cpu_frequency_ghz'] as num?)?.toDouble() ?? _cpuSpeed;
+          _memoryValue = (rt['ram_used_gb'] as num?)?.toDouble() ?? _memoryValue;
+          _cpuHistory = [..._cpuHistory.sublist(1), _cpuValue];
 
-        _gpuSharedMemValue = (_gpuSharedMemValue + (_random.nextDouble() * 0.1 - 0.05)).clamp(0.6, 1.4);
-        _gpuSharedMemHistory = [..._gpuSharedMemHistory.sublist(1), _gpuSharedMemValue];
+          final memPct = (rt['ram_percent'] as num?)?.toDouble() ?? 80.0;
+          _memoryHistory = [..._memoryHistory.sublist(1), memPct];
 
-        _cpuValue = (_cpuValue + (_random.nextDouble() * 8 - 4)).clamp(18.0, 65.0);
-        _cpuSpeed = (1.00 + (_random.nextDouble() * 0.3 - 0.15)).clamp(0.85, 3.40);
-        _cpuHistory = [..._cpuHistory.sublist(1), _cpuValue];
+          final gpus = rt['gpus'] as List<dynamic>?;
+          if (gpus != null && gpus.isNotEmpty) {
+            final g0 = gpus[0] as Map<String, dynamic>;
+            _gpuSharedMemValue = (g0['used_vram_gb'] as num?)?.toDouble() ?? _gpuSharedMemValue;
+            _gpuSharedMemHistory = [..._gpuSharedMemHistory.sublist(1), _gpuSharedMemValue];
+          }
+        }
+      }
 
-        _diskValue = (_diskValue + (_random.nextDouble() * 6 - 3)).clamp(0.0, 32.0);
-        _diskHistory = [..._diskHistory.sublist(1), _diskValue];
-
-        // --- 2. Swarm Contribution Fluctuation ---
-        _contribCpuLoad = (_contribCpuLoad + (_random.nextDouble() * 6 - 3)).clamp(58.0, 92.0);
-        _contribCpuGflops = (_contribCpuGflops + (_random.nextDouble() * 0.4 - 0.2)).clamp(13.4, 15.2);
-        _contribCpuHistory = [..._contribCpuHistory.sublist(1), _contribCpuLoad];
-
-        _contribMemUsed = (_contribMemUsed + (_random.nextDouble() * 0.08 - 0.04)).clamp(3.9, 4.6);
-        final memPercent = (_contribMemUsed / _contribMemAllocated) * 100.0;
-        _contribMemoryHistory = [..._contribMemoryHistory.sublist(1), memPercent];
-
-        _contribDiskActive = (_contribDiskActive + (_random.nextDouble() * 8 - 4)).clamp(10.0, 42.0);
-        _contribDiskHistory = [..._contribDiskHistory.sublist(1), _contribDiskActive];
-        _contribDiskUsed = (_contribDiskUsed + (_random.nextDouble() * 0.1 - 0.05)).clamp(41.5, 43.8);
-
-        _contribEthSend = (_contribEthSend + (_random.nextDouble() * 1.6 - 0.8)).clamp(11.0, 19.5);
-        _contribEthRecv = (_contribEthRecv + (_random.nextDouble() * 2.0 - 1.0)).clamp(14.0, 23.0);
-        _contribEthernetHistory = [..._contribEthernetHistory.sublist(1), _contribEthSend];
-
-        _contribWifiSend = (_contribWifiSend + (_random.nextDouble() * 20 - 10)).clamp(130.0, 240.0);
-        _contribWifiRecv = (_contribWifiRecv + (_random.nextDouble() * 24 - 12)).clamp(180.0, 310.0);
-        _contribWifiHistory = [..._contribWifiHistory.sublist(1), _contribWifiSend];
-
-        _contribGpuTensorLoad = (_contribGpuTensorLoad + (_random.nextDouble() * 5 - 2.5)).clamp(70.0, 95.0);
+      if (cluster != null) {
+        final tflops = ((cluster['combined_gflops'] as num? ?? 0) / 1000).toDouble();
+        if (tflops > 0) {
+          _contribCpuGflops = tflops;
+        }
+        _contribGpuTensorLoad = _cpuValue.clamp(40.0, 95.0);
         _contribGpuTensorHistory = [..._contribGpuTensorHistory.sublist(1), _contribGpuTensorLoad];
-
-        _contribGpuCopyLoad = (_contribGpuCopyLoad + (_random.nextDouble() * 4 - 2.0)).clamp(14.0, 34.0);
-        _contribGpuCopyHistory = [..._contribGpuCopyHistory.sublist(1), _contribGpuCopyLoad];
-
-        _contribGpuDecodeLoad = (_contribGpuDecodeLoad + (_random.nextDouble() * 3 - 1.5)).clamp(7.0, 20.0);
-        _contribGpuDecodeHistory = [..._contribGpuDecodeHistory.sublist(1), _contribGpuDecodeLoad];
-
-        _contribGpuProcLoad = (_contribGpuProcLoad + (_random.nextDouble() * 5 - 2.5)).clamp(38.0, 64.0);
-        _contribGpuProcHistory = [..._contribGpuProcHistory.sublist(1), _contribGpuProcLoad];
-
-        _contribGpuVramUsed = (_contribGpuVramUsed + (_random.nextDouble() * 0.02 - 0.01)).clamp(0.68, 0.70);
-        _contribGpuVramHistory = [..._contribGpuVramHistory.sublist(1), _contribGpuVramUsed];
-      });
+        _contribCpuHistory = [..._contribCpuHistory.sublist(1), _cpuValue];
+      }
     });
   }
 
   @override
   void dispose() {
+    DeSplitDaemonService.instance.hardwareMetrics.removeListener(_onDaemonTelemetry);
+    DeSplitDaemonService.instance.clusterState.removeListener(_onDaemonTelemetry);
     _tickerTimer?.cancel();
     super.dispose();
   }
@@ -452,12 +440,18 @@ class _TelementaryViewState extends State<TelementaryView> {
   // Left Sidebar: Hardware Device List
   // -------------------------------------------------------------
   Widget _buildHardwareDeviceList() {
-    // Current GPU names & labels
+    // Current GPU names & labels from real daemon detection
     final isAmd = _selectedGpuModel == 1;
-    final gpuHostName = isAmd ? 'AMD Radeon RX 7900...' : 'Intel(R) Iris(R) Xe Grap...';
+    final hw = DeSplitDaemonService.instance.hardwareMetrics.value;
+    final gpus = hw?['gpus'] as List<dynamic>?;
+    final realGpuName = (gpus != null && gpus.isNotEmpty)
+        ? (gpus[0]['name'] as String? ?? 'Intel(R) Iris(R) Xe Graphics')
+        : 'Intel(R) Iris(R) Xe Graphics';
+    final gpuHostName = isAmd ? 'AMD Radeon RX 7900 XTX' : realGpuName;
+    final ramTotalGb = ((hw?['ram']?['total_ram_mb'] as num? ?? 16128) / 1024).toStringAsFixed(1);
     final gpuHostSub = isAmd
         ? '$gpuHostName\n${_amd3DValue.toInt()}% N/A'
-        : '$gpuHostName\n${_gpu3DValue.toInt()}% N/A';
+        : '$gpuHostName\n${_gpu3DValue.toInt()}% VRAM: ${_gpuSharedMemValue.toStringAsFixed(2)} GB';
     final gpuContribSub = isAmd
         ? '61.4 TFLOPS • 16.0 GB VRAM\n${_contribGpuTensorLoad.toInt()}% Tensor Load'
         : '14.2 TFLOPS • 0.7 GB Shared\n${_contribGpuTensorLoad.toInt()}% Tensor Load';
@@ -470,7 +464,7 @@ class _TelementaryViewState extends State<TelementaryView> {
           index: 0,
           title: _isContributionMode ? 'CPU (Swarm)' : 'CPU',
           subtitle: _isContributionMode
-              ? '${_contribCpuLoad.toInt()}% Contributed\n$_contribCpuCores Cores • ${_contribCpuGflops.toStringAsFixed(1)} GFLOPS'
+              ? '${_contribCpuLoad.toInt()}% Contributed\n${hw?['cpu']?['logical_cores'] ?? 12} Cores • ${_contribCpuGflops.toStringAsFixed(1)} GFLOPS'
               : '${_cpuValue.toInt()}% ${_cpuSpeed.toStringAsFixed(2)} GHz',
           dataPoints: _isContributionMode ? _contribCpuHistory : _cpuHistory,
           maxValue: 100.0,
@@ -481,7 +475,7 @@ class _TelementaryViewState extends State<TelementaryView> {
           title: _isContributionMode ? 'Memory (Swarm)' : 'Memory',
           subtitle: _isContributionMode
               ? '${_contribMemUsed.toStringAsFixed(1)}/${_contribMemAllocated.toStringAsFixed(0)} GB Contributed\n70% Buffer In-Use'
-              : '${_memoryValue.toStringAsFixed(1)}/15.8 GB (80%)',
+              : '${_memoryValue.toStringAsFixed(1)}/$ramTotalGb GB',
           dataPoints: _isContributionMode ? _contribMemoryHistory : _memoryHistory,
           maxValue: 100.0,
         ),
@@ -1290,8 +1284,8 @@ class _TelementaryViewState extends State<TelementaryView> {
               Flexible(
                 child: Text(
                   _isContributionMode
-                      ? '12th Gen Intel(R) Core(TM) i7-12700H (8 Cores Contributed)'
-                      : '12th Gen Intel(R) Core(TM) i7-12700H',
+                      ? '${DeSplitDaemonService.instance.hardwareMetrics.value?['cpu']?['name'] ?? '12th Gen Intel(R) Core(TM) i5-1235U'} (Contributed)'
+                      : (DeSplitDaemonService.instance.hardwareMetrics.value?['cpu']?['name'] ?? '12th Gen Intel(R) Core(TM) i5-1235U'),
                   style: TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 14,

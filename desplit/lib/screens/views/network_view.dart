@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import '../../services/desplit_daemon_service.dart';
 import '../../services/theme_service.dart';
 import '../../theme/app_colors.dart';
 import 'network/network_map_painter.dart';
@@ -384,23 +385,38 @@ class _NetworkViewState extends State<NetworkView>
       vsync: this,
       duration: const Duration(seconds: 8),
     )..repeat();
+
+    DeSplitDaemonService.instance.meshNodes.addListener(_onDaemonMeshChanged);
+    DeSplitDaemonService.instance.clusterState.addListener(_onDaemonMeshChanged);
+  }
+
+  void _onDaemonMeshChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    DeSplitDaemonService.instance.meshNodes.removeListener(_onDaemonMeshChanged);
+    DeSplitDaemonService.instance.clusterState.removeListener(_onDaemonMeshChanged);
     _mapTransformController.dispose();
     _animController.dispose();
     super.dispose();
   }
 
+  List<MeshNode> get _activeNodes {
+    final live = DeSplitDaemonService.instance.meshNodes.value;
+    return live.isNotEmpty ? live : _nodes;
+  }
+
   List<MeshNode> get _filteredNodes {
+    final currentNodes = _activeNodes;
     if (_selectedFilter == 'GPU') {
-      return _nodes.where((n) => n.title.contains('DESKTOP') || n.isUser).toList();
+      return currentNodes.where((n) => n.title.contains('DESKTOP') || n.gpu.contains('RTX') || n.gpu.contains('GeForce') || n.isUser).toList();
     }
     if (_selectedFilter == 'RELAYS') {
-      return _nodes.where((n) => n.title.contains('SERVER') || n.isUser).toList();
+      return currentNodes.where((n) => n.title.contains('SERVER') || n.title.contains('HUB') || n.isUser).toList();
     }
-    return _nodes;
+    return currentNodes;
   }
 
   void _zoomMap(double factor, double viewportWidth, double viewportHeight) {
@@ -740,14 +756,29 @@ class _NetworkViewState extends State<NetworkView>
                 ),
               ),
               const SizedBox(width: 8),
-              Text(
-                'SWARM ACTIVE: ${_nodes.length} Connected Nodes • 1,640.2 TFLOPS Network Capacity',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.4,
-                ),
+              Builder(
+                builder: (context) {
+                  final cluster = DeSplitDaemonService.instance.clusterState.value;
+                  final nodeCount = cluster != null
+                      ? (cluster['online_nodes'] ?? _activeNodes.length)
+                      : _activeNodes.length;
+                  final tflops = cluster != null
+                      ? ((cluster['combined_gflops'] as num? ?? 142330.0) / 1000).toStringAsFixed(1)
+                      : '142.3';
+                  final vramGb = cluster != null
+                      ? ((cluster['total_vram_mb'] as num? ?? 45184) / 1024).toStringAsFixed(1)
+                      : '44.1';
+
+                  return Text(
+                    'SWARM ACTIVE: $nodeCount Connected Nodes • $vramGb GB Pooled VRAM • $tflops TFLOPS Capacity',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.4,
+                    ),
+                  );
+                },
               ),
             ],
           ),

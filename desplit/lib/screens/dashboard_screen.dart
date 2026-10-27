@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/auth_service.dart';
+import '../services/desplit_daemon_service.dart';
 import '../services/theme_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/ambient_violet_background.dart';
@@ -32,6 +33,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _isSidebarCollapsed = false;
   bool _isFullscreen = false;
   double _uiScaleFactor = 1.0;
+
+  @override
+  void initState() {
+    super.initState();
+    DeSplitDaemonService.instance.init();
+    _isNodeOnline = DeSplitDaemonService.instance.isNodeOnline.value;
+    DeSplitDaemonService.instance.isNodeOnline.addListener(_onNodeOnlineChanged);
+  }
+
+  void _onNodeOnlineChanged() {
+    if (mounted) {
+      setState(() {
+        _isNodeOnline = DeSplitDaemonService.instance.isNodeOnline.value;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    DeSplitDaemonService.instance.isNodeOnline.removeListener(_onNodeOnlineChanged);
+    super.dispose();
+  }
 
   Future<void> _handleSignOut() async {
     await AuthService.instance.signOut();
@@ -440,9 +463,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               MasterPowerSwitch(
                                 value: _isNodeOnline,
                                 onChanged: (val) {
-                                  setState(() {
-                                    _isNodeOnline = val;
-                                  });
+                                  DeSplitDaemonService.instance.togglePool(val);
                                 },
                               ),
                             ],
