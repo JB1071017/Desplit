@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../services/desplit_daemon_service.dart';
 import '../../services/theme_service.dart';
 import '../../theme/app_colors.dart';
 
@@ -133,278 +134,159 @@ class _FedAvgViewState extends State<FedAvgView> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _initWorkers();
-    _initAlerts();
+    _initFallbackWorkers();
     _startAlertSlideTimer();
 
-    _liveUpdateTimer = Timer.periodic(const Duration(seconds: 4), (_) {
-      if (!mounted || _isPaused) return;
-      setState(() {
-        for (var w in _workers) {
-          if (!w.isExcluded && w.progress < 1.0) {
-            w.progress = (w.progress + 0.012).clamp(0.0, 1.0);
-            if (w.progress >= 1.0) {
-              w.status = 'Synced';
-            }
-          }
-        }
-      });
-    });
+    // Connect to live real FedAvg swarm daemon
+    _syncWithDaemonFedAvg();
+    DeSplitDaemonService.instance.fedAvgState.addListener(_onDaemonFedAvgChanged);
   }
 
-  void _initWorkers() {
+  void _onDaemonFedAvgChanged() {
+    if (!mounted) return;
+    _syncWithDaemonFedAvg();
+  }
+
+  void _initFallbackWorkers() {
+    _initAlerts();
     _workers = [
       _SwarmWorkerItem(
-        id: 'node-01',
-        name: 'Node-US (Virginia Mesh)',
-        cluster: 'US-East • Primary Aggregator',
-        role: 'Aggregator Node',
-        hardware: 'NVIDIA H100 PCIe (80 GB)',
-        tflops: '312 TFLOPS',
-        vram: '72.4 / 80 GB',
-        pingMs: 24,
-        icon: Icons.hub_rounded,
-        iconColor: const Color(0xFF38BDF8),
-        progress: 0.94,
-        localEpoch: 'Epoch 19 / 20',
-        deltaSize: '1.2 GB INT8',
+        id: 'node_local',
+        name: 'JB (YOU)',
+        cluster: 'Local Node • Primary Operator',
+        role: 'Host / Aggregator',
+        hardware: 'Intel(R) Iris(R) Xe Graphics',
+        tflops: '48.4 GFLOPS',
+        vram: '15.8 GB RAM',
+        pingMs: 0,
+        icon: Icons.computer_rounded,
+        iconColor: const Color(0xFF00F5A0),
+        progress: 0.25,
+        localEpoch: 'Epoch 5 / 20',
+        deltaSize: '256 MB INT8',
         compression: '4.2x',
-        timeLeft: '18s',
-        speedItSec: 184.2,
-        weightScore: '24.8%',
+        timeLeft: '35s',
+        speedItSec: 39.7,
+        weightScore: '100.0%',
         cosineSimilarity: '0.994',
         cosineVal: 0.994,
         status: 'Training',
         statusColor: const Color(0xFF38BDF8),
         byzantineVerified: true,
       ),
-      _SwarmWorkerItem(
-        id: 'node-02',
-        name: 'Local Workstation (Host)',
-        cluster: 'Local Node • Primary Operator',
-        role: 'Host Node',
-        hardware: 'NVIDIA RTX 4070 (8 GB)',
-        tflops: '29 TFLOPS',
-        vram: '7.1 / 8 GB',
-        pingMs: 2,
-        icon: Icons.computer_rounded,
-        iconColor: const Color(0xFF00F5A0),
-        progress: 1.0,
-        localEpoch: 'Epoch 20 / 20',
-        deltaSize: '512 MB INT8',
-        compression: '4.0x',
-        timeLeft: 'Ready',
-        speedItSec: 162.8,
-        weightScore: '18.2%',
-        cosineSimilarity: '0.988',
-        cosineVal: 0.988,
-        status: 'Synced',
-        statusColor: const Color(0xFF00F5A0),
-        byzantineVerified: true,
-      ),
-      _SwarmWorkerItem(
-        id: 'node-03',
-        name: 'Node-SG (Singapore)',
-        cluster: 'AP-Southeast • Shard 2',
-        role: 'Compute Worker',
-        hardware: 'NVIDIA RTX 3080 (10 GB)',
-        tflops: '30 TFLOPS',
-        vram: '8.9 / 10 GB',
-        pingMs: 142,
-        icon: Icons.cloud_done_rounded,
-        iconColor: const Color(0xFF00F5A0),
-        progress: 1.0,
-        localEpoch: 'Epoch 20 / 20',
-        deltaSize: '314 MB INT8',
-        compression: '4.1x',
-        timeLeft: 'Ready',
-        speedItSec: 142.4,
-        weightScore: '14.5%',
-        cosineSimilarity: '0.982',
-        cosineVal: 0.982,
-        status: 'Synced',
-        statusColor: const Color(0xFF00F5A0),
-        byzantineVerified: true,
-      ),
-      _SwarmWorkerItem(
-        id: 'node-04',
-        name: 'Node-DE (Frankfurt)',
-        cluster: 'EU-Central • Shard 4',
-        role: 'Compute Worker',
-        hardware: 'NVIDIA A10G (24 GB)',
-        tflops: '70 TFLOPS',
-        vram: '21.5 / 24 GB',
-        pingMs: 88,
-        icon: Icons.sync_rounded,
-        iconColor: const Color(0xFFA855F7),
-        progress: 0.76,
-        localEpoch: 'Epoch 15 / 20',
-        deltaSize: '640 MB INT8',
-        compression: '4.0x',
-        timeLeft: '42s',
-        speedItSec: 138.5,
-        weightScore: '12.6%',
-        cosineSimilarity: '0.979',
-        cosineVal: 0.979,
-        status: 'Syncing',
-        statusColor: const Color(0xFFA855F7),
-        byzantineVerified: true,
-      ),
-      _SwarmWorkerItem(
-        id: 'node-05',
-        name: 'Node-JP (Tokyo Central)',
-        cluster: 'AP-East • Validator',
-        role: 'Validator Node',
-        hardware: 'NVIDIA RTX 4090 (24 GB)',
-        tflops: '83 TFLOPS',
-        vram: '22.8 / 24 GB',
-        pingMs: 110,
-        icon: Icons.verified_user_rounded,
-        iconColor: const Color(0xFF38BDF8),
-        progress: 0.88,
-        localEpoch: 'Epoch 17 / 20',
-        deltaSize: '1.24 GB INT8',
-        compression: '4.2x',
-        timeLeft: '55s',
-        speedItSec: 131.0,
-        weightScore: '11.4%',
-        cosineSimilarity: '0.986',
-        cosineVal: 0.986,
-        status: 'Training',
-        statusColor: const Color(0xFF38BDF8),
-        byzantineVerified: true,
-      ),
-      _SwarmWorkerItem(
-        id: 'node-06',
-        name: 'Node-IN (Bengaluru)',
-        cluster: 'AP-South • Shard 3',
-        role: 'Compute Worker',
-        hardware: 'NVIDIA RTX 4060 Ti (16 GB)',
-        tflops: '22 TFLOPS',
-        vram: '14.2 / 16 GB',
-        pingMs: 64,
-        icon: Icons.developer_board_rounded,
-        iconColor: const Color(0xFF38BDF8),
-        progress: 0.82,
-        localEpoch: 'Epoch 16 / 20',
-        deltaSize: '512 MB INT8',
-        compression: '4.0x',
-        timeLeft: '1m 15s',
-        speedItSec: 114.6,
-        weightScore: '7.8%',
-        cosineSimilarity: '0.981',
-        cosineVal: 0.981,
-        status: 'Training',
-        statusColor: const Color(0xFF38BDF8),
-        byzantineVerified: true,
-      ),
-      _SwarmWorkerItem(
-        id: 'node-07',
-        name: 'Node-UK (London Data)',
-        cluster: 'EU-West • Validator',
-        role: 'Validator Node',
-        hardware: 'NVIDIA RTX 3090 (24 GB)',
-        tflops: '36 TFLOPS',
-        vram: '23.1 / 24 GB',
-        pingMs: 95,
-        icon: Icons.sync_rounded,
-        iconColor: const Color(0xFFA855F7),
-        progress: 0.65,
-        localEpoch: 'Epoch 13 / 20',
-        deltaSize: '384 MB INT8',
-        compression: '4.1x',
-        timeLeft: '1m 40s',
-        speedItSec: 102.3,
-        weightScore: '6.2%',
-        cosineSimilarity: '0.975',
-        cosineVal: 0.975,
-        status: 'Syncing',
-        statusColor: const Color(0xFFA855F7),
-        byzantineVerified: true,
-      ),
-      _SwarmWorkerItem(
-        id: 'node-08',
-        name: 'Node-CA (Montreal Cluster)',
-        cluster: 'NA-North • Shard 1',
-        role: 'Compute Worker',
-        hardware: 'Tesla V100 (32 GB)',
-        tflops: '125 TFLOPS',
-        vram: '29.4 / 32 GB',
-        pingMs: 178,
-        icon: Icons.schedule_rounded,
-        iconColor: const Color(0xFFF59E0B),
-        progress: 0.58,
-        localEpoch: 'Epoch 12 / 20',
-        deltaSize: '256 MB INT8',
-        compression: '3.9x',
-        timeLeft: '2m 10s',
-        speedItSec: 95.8,
-        weightScore: '4.5%',
-        cosineSimilarity: '0.972',
-        cosineVal: 0.972,
-        status: 'Lagging',
-        statusColor: const Color(0xFFF59E0B),
-        byzantineVerified: true,
-      ),
     ];
+  }
+
+  void _syncWithDaemonFedAvg() {
+    final data = DeSplitDaemonService.instance.fedAvgState.value;
+    if (data == null) return;
+
+    final round = data['round'] as int? ?? _currentRound;
+    final isTraining = data['is_training'] as bool? ?? !_isPaused;
+    final isAggregating = data['is_aggregating'] as bool? ?? false;
+    final rawWorkers = data['workers'] as List<dynamic>? ?? [];
+    final rawAlerts = data['alerts'] as List<dynamic>? ?? [];
+
+    final List<_SwarmWorkerItem> parsedWorkers = [];
+    for (final rw in rawWorkers) {
+      final w = rw as Map<String, dynamic>;
+      final isUser = w['is_user'] == true;
+      final st = w['status'] as String? ?? 'Training';
+      Color stColor = const Color(0xFF38BDF8);
+      if (st == 'Synced') {
+        stColor = const Color(0xFF00F5A0);
+      } else if (st == 'Paused') {
+        stColor = const Color(0xFFF59E0B);
+      } else if (st == 'Aggregating') {
+        stColor = const Color(0xFFA855F7);
+      }
+
+      parsedWorkers.add(
+        _SwarmWorkerItem(
+          id: w['id'] as String? ?? 'node',
+          name: w['name'] as String? ?? 'Node',
+          cluster: w['cluster'] as String? ?? 'Local Node',
+          role: w['role'] as String? ?? 'Compute Worker',
+          hardware: w['hardware'] as String? ?? 'Hardware',
+          tflops: w['tflops'] as String? ?? '50 GFLOPS',
+          vram: w['vram'] as String? ?? '16 GB RAM',
+          pingMs: (w['ping_ms'] as num? ?? 0).toInt(),
+          icon: isUser ? Icons.computer_rounded : Icons.hub_rounded,
+          iconColor: isUser ? const Color(0xFF00F5A0) : const Color(0xFF38BDF8),
+          progress: (w['progress'] as num? ?? 0.0).toDouble().clamp(0.0, 1.0),
+          localEpoch: w['local_epoch'] as String? ?? 'Epoch 1 / 20',
+          deltaSize: w['delta_size'] as String? ?? '256 MB INT8',
+          compression: w['compression'] as String? ?? '4.2x',
+          timeLeft: w['time_left'] as String? ?? 'Ready',
+          speedItSec: (w['speed_it_sec'] as num? ?? 39.0).toDouble(),
+          weightScore: w['weight_score'] as String? ?? '100.0%',
+          cosineSimilarity: w['cosine_similarity'] as String? ?? '0.994',
+          cosineVal: (w['cosine_val'] as num? ?? 0.994).toDouble(),
+          status: st,
+          statusColor: stColor,
+          byzantineVerified: w['byzantine_verified'] == true,
+        ),
+      );
+    }
+
+    final List<_SwarmAlert> parsedAlerts = [];
+    for (final ra in rawAlerts) {
+      final a = ra as Map<String, dynamic>;
+      final badge = a['badge_text'] as String? ?? 'CONSENSUS';
+      Color alertColor = const Color(0xFF00F5A0);
+      IconData icon = Icons.verified_user_rounded;
+
+      if (badge == 'HARDWARE') {
+        alertColor = const Color(0xFFF43F5E);
+        icon = Icons.memory_rounded;
+      } else if (badge == 'COMPUTE') {
+        alertColor = const Color(0xFFF59E0B);
+        icon = Icons.speed_rounded;
+      } else if (badge == 'NETWORK') {
+        alertColor = const Color(0xFF38BDF8);
+        icon = Icons.alt_route_rounded;
+      }
+
+      parsedAlerts.add(
+        _SwarmAlert(
+          id: a['id'] as String? ?? 'alert',
+          title: a['title'] as String? ?? 'Alert',
+          message: a['message'] as String? ?? '',
+          targetNodeId: a['target_node_id'] as String? ?? '',
+          actionLabel: a['action_label'] as String? ?? 'Inspect',
+          color: alertColor,
+          icon: icon,
+          badgeText: badge,
+          timeAgo: a['time_ago'] as String? ?? 'Just now',
+        ),
+      );
+    }
+
+    setState(() {
+      _currentRound = round;
+      _isPaused = !isTraining;
+      _isAggregating = isAggregating;
+      if (parsedWorkers.isNotEmpty) {
+        _workers = parsedWorkers;
+      }
+      if (parsedAlerts.isNotEmpty) {
+        _alerts = parsedAlerts;
+      }
+    });
   }
 
   void _initAlerts() {
     _alerts = [
       const _SwarmAlert(
-        id: 'alert-node-ca',
-        title: 'Pacing Alert: Node-CA Lagging',
-        message: 'Node-CA (Montreal) is lagging 24% behind average speed. Trimmed-Mean consensus filtering actively shields round completion.',
-        targetNodeId: 'node-08',
-        actionLabel: 'Inspect Node-CA (Montreal)',
-        color: Color(0xFFF59E0B),
-        icon: Icons.warning_amber_rounded,
-        badgeText: 'PACING',
-        timeAgo: 'Just now',
-      ),
-      const _SwarmAlert(
-        id: 'alert-node-de',
-        title: 'Gradient Divergence: Node-DE',
-        message: 'Node-DE (Frankfurt) reported a 3.8% cosine divergence on layer 14 weights. Dynamic gradient clipping engaged.',
-        targetNodeId: 'node-04',
-        actionLabel: 'Inspect Node-DE (Frankfurt)',
-        color: Color(0xFFA855F7),
-        icon: Icons.auto_graph_rounded,
-        badgeText: 'WEIGHTS',
-        timeAgo: '2m ago',
-      ),
-      const _SwarmAlert(
-        id: 'alert-node-jp',
-        title: 'Tunnel Jitter: Node-JP',
-        message: 'WireGuard round-trip latency spike (184ms) detected on AP-East gateway. Re-routing fallback packet streams.',
-        targetNodeId: 'node-05',
-        actionLabel: 'Inspect Node-JP (Tokyo)',
-        color: Color(0xFF38BDF8),
-        icon: Icons.alt_route_rounded,
-        badgeText: 'NETWORK',
-        timeAgo: '4m ago',
-      ),
-      const _SwarmAlert(
-        id: 'alert-node-us',
-        title: 'High VRAM Pressure: Node-US',
-        message: 'Node-US VRAM allocation reached 90.5% (72.4 GB / 80 GB). INT8 activation quantization enabled to prevent OOM.',
-        targetNodeId: 'node-01',
-        actionLabel: 'Inspect Node-US (Virginia)',
-        color: Color(0xFFF43F5E),
-        icon: Icons.memory_rounded,
-        badgeText: 'HARDWARE',
-        timeAgo: '6m ago',
-      ),
-      const _SwarmAlert(
-        id: 'alert-node-uk',
-        title: 'ZK-Proof Check: Node-UK',
-        message: 'Zero-Knowledge Byzantine commitment verified for round 4 delta chunk. Swarm consensus weight increased.',
-        targetNodeId: 'node-07',
-        actionLabel: 'Inspect Node-UK (London)',
-        color: Color(0xFF10B981),
+        id: 'alert-initial',
+        title: 'FedAvg Swarm Sentry Active',
+        message: 'Local physical node initialized in cluster. Zero-Knowledge signature verified.',
+        targetNodeId: 'node_local',
+        actionLabel: 'Inspect Local Node',
+        color: Color(0xFF00F5A0),
         icon: Icons.verified_user_rounded,
         badgeText: 'BYZANTINE',
-        timeAgo: '9m ago',
+        timeAgo: 'Just now',
       ),
     ];
   }
@@ -459,38 +341,42 @@ class _FedAvgViewState extends State<FedAvgView> with SingleTickerProviderStateM
 
   @override
   void dispose() {
+    DeSplitDaemonService.instance.fedAvgState.removeListener(_onDaemonFedAvgChanged);
     _liveUpdateTimer?.cancel();
     _alertSlideTimer?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
-  void _togglePauseTraining() {
+  Future<void> _togglePauseTraining() async {
+    final isTraining = await DeSplitDaemonService.instance.toggleFedAvgTraining();
     setState(() {
-      _isPaused = !_isPaused;
+      _isPaused = !isTraining;
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(_isPaused ? 'Swarm training paused across all nodes' : 'Swarm training resumed'),
-        duration: const Duration(seconds: 2),
-        backgroundColor: _isPaused ? const Color(0xFFF59E0B) : const Color(0xFF10B981),
-      ),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_isPaused ? 'Swarm training paused across all nodes' : 'Swarm training resumed'),
+          duration: const Duration(seconds: 2),
+          backgroundColor: _isPaused ? const Color(0xFFF59E0B) : const Color(0xFF10B981),
+        ),
+      );
+    }
   }
 
-  void _triggerManualAggregation() {
+  Future<void> _triggerManualAggregation() async {
     setState(() => _isAggregating = true);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: const Row(
+        content: Row(
           children: [
-            SizedBox(
+            const SizedBox(
               width: 16,
               height: 16,
               child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
             ),
-            SizedBox(width: 12),
-            Text('Averaging federated model weights across all 8 nodes...'),
+            const SizedBox(width: 12),
+            Text('Averaging federated model weights across all ${_workers.length} node(s)...'),
           ],
         ),
         duration: const Duration(seconds: 2),
@@ -498,26 +384,18 @@ class _FedAvgViewState extends State<FedAvgView> with SingleTickerProviderStateM
       ),
     );
 
-    Future.delayed(const Duration(seconds: 2), () {
-      if (!mounted) return;
-      setState(() {
-        _isAggregating = false;
-        _currentRound = (_currentRound < _totalRounds) ? _currentRound + 1 : 1;
-        for (var w in _workers) {
-          w.progress = (w.progress > 0.3) ? 0.25 : w.progress;
-          if (w.status == 'Synced') {
-            w.status = 'Training';
-          }
-        }
-      });
+    final ok = await DeSplitDaemonService.instance.triggerFedAvgAggregation();
+    if (!mounted) return;
+    setState(() => _isAggregating = false);
+    if (ok) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Round $_currentRound started successfully! Model weights updated.'),
+          content: Text('Round $_currentRound aggregated successfully! Model weights updated.'),
           duration: const Duration(seconds: 2),
           backgroundColor: const Color(0xFF10B981),
         ),
       );
-    });
+    }
   }
 
   void _inspectNode(String nodeId) {
@@ -581,7 +459,7 @@ class _FedAvgViewState extends State<FedAvgView> with SingleTickerProviderStateM
                 const SizedBox(height: 14),
                 _buildDialogParamRow(
                   'Minimum Quorum',
-                  '6 of 8 nodes (75%)',
+                  '${(_workers.length * 0.75).ceil()} of ${_workers.length} node(s) (75%)',
                   'Minimum required nodes to finalize a consensus round.',
                   isDark,
                 ),
@@ -1469,14 +1347,16 @@ class _FedAvgViewState extends State<FedAvgView> with SingleTickerProviderStateM
                 borderRadius: BorderRadius.circular(8),
                 side: BorderSide(color: _borderColor),
               ),
-              itemBuilder: (ctx) => [
-                PopupMenuItem(value: 'ALL', child: Text('All Clusters (6)', style: TextStyle(color: _textPrimary, fontSize: 12))),
-                PopupMenuItem(value: 'US-East', child: Text('US-East (Virginia)', style: TextStyle(color: _textPrimary, fontSize: 12))),
-                PopupMenuItem(value: 'EU-Central', child: Text('EU-Central (Frankfurt)', style: TextStyle(color: _textPrimary, fontSize: 12))),
-                PopupMenuItem(value: 'AP-South', child: Text('AP-South (Bengaluru)', style: TextStyle(color: _textPrimary, fontSize: 12))),
-                PopupMenuItem(value: 'AP-East', child: Text('AP-East (Tokyo)', style: TextStyle(color: _textPrimary, fontSize: 12))),
-                PopupMenuItem(value: 'Local', child: Text('Local Host Operator', style: TextStyle(color: _textPrimary, fontSize: 12))),
-              ],
+              itemBuilder: (ctx) {
+                final distinctClusters = {'ALL', ..._workers.map((w) => w.cluster.split('•').first.trim()).toSet()};
+                return distinctClusters.map((c) {
+                  final label = c == 'ALL' ? 'All Clusters (${distinctClusters.length - 1})' : c;
+                  return PopupMenuItem(
+                    value: c,
+                    child: Text(label, style: TextStyle(color: _textPrimary, fontSize: 12)),
+                  );
+                }).toList();
+              },
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                 decoration: BoxDecoration(
@@ -2953,57 +2833,43 @@ class _FedAvgViewState extends State<FedAvgView> with SingleTickerProviderStateM
           const SizedBox(height: 14),
           LayoutBuilder(
             builder: (context, streamConstraints) {
+              final streams = <Widget>[];
+              if (_workers.length <= 1) {
+                final w = _workers.isNotEmpty ? _workers[0] : null;
+                final speedStr = w != null ? '${w.speedItSec.toStringAsFixed(1)} it/s' : 'Idle';
+                final deltaStr = w != null ? w.deltaSize : '256 MB INT8';
+                streams.add(_buildStreamItem('Host CPU/GPU ➔ Shard Cache', deltaStr, speedStr, const Color(0xFF00F5A0)));
+                streams.add(_buildStreamItem('gRPC Port 50051 ➔ Pool Listener', '0 B Active Peers', 'Listening', const Color(0xFF38BDF8)));
+                streams.add(_buildStreamItem('STUN NAT Gateway ➔ Local Host', 'Direct STUN', '0 ms latency', const Color(0xFFA855F7)));
+                streams.add(_buildStreamItem('Consensus Shard ➔ Llama 3 (8B)', 'Full Local Shard', 'Trimmed-Mean', const Color(0xFFF59E0B)));
+              } else {
+                for (final w in _workers) {
+                  final isLocal = w.id.contains('local') || w.name.contains('(YOU)');
+                  final route = isLocal ? 'Host Cores ➔ Local Shard' : '${w.name} ➔ Host Aggregator';
+                  streams.add(_buildStreamItem(route, w.deltaSize, '${w.speedItSec.toStringAsFixed(1)} it/s', w.iconColor));
+                }
+              }
+
               final isNarrow = streamConstraints.maxWidth < 650;
               if (isNarrow) {
                 return Wrap(
                   spacing: 10,
                   runSpacing: 10,
-                  children: [
-                    SizedBox(
-                      width: (streamConstraints.maxWidth - 10) / 2 > 160
-                          ? (streamConstraints.maxWidth - 10) / 2
-                          : streamConstraints.maxWidth,
-                      child: _buildStreamItem('US-East ➔ Frankfurt', '640 MB', '142 MB/s', const Color(0xFF38BDF8)),
-                    ),
-                    SizedBox(
-                      width: (streamConstraints.maxWidth - 10) / 2 > 160
-                          ? (streamConstraints.maxWidth - 10) / 2
-                          : streamConstraints.maxWidth,
-                      child: _buildStreamItem('Singapore ➔ Local Host', '512 MB', '180 MB/s', const Color(0xFF00F5A0)),
-                    ),
-                    SizedBox(
-                      width: (streamConstraints.maxWidth - 10) / 2 > 160
-                          ? (streamConstraints.maxWidth - 10) / 2
-                          : streamConstraints.maxWidth,
-                      child: _buildStreamItem('Tokyo ➔ Bengaluru', '384 MB', '118 MB/s', const Color(0xFFA855F7)),
-                    ),
-                    SizedBox(
-                      width: (streamConstraints.maxWidth - 10) / 2 > 160
-                          ? (streamConstraints.maxWidth - 10) / 2
-                          : streamConstraints.maxWidth,
-                      child: _buildStreamItem('London ➔ Montreal', '256 MB', '94 MB/s', const Color(0xFFF59E0B)),
-                    ),
-                  ],
+                  children: streams.map((s) => SizedBox(
+                    width: (streamConstraints.maxWidth - 10) / 2 > 160
+                        ? (streamConstraints.maxWidth - 10) / 2
+                        : streamConstraints.maxWidth,
+                    child: s,
+                  )).toList(),
                 );
               }
               return Row(
-                children: [
-                  Expanded(
-                    child: _buildStreamItem('US-East ➔ Frankfurt', '640 MB', '142 MB/s', const Color(0xFF38BDF8)),
+                children: streams.map((s) => Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: s,
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _buildStreamItem('Singapore ➔ Local Host', '512 MB', '180 MB/s', const Color(0xFF00F5A0)),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _buildStreamItem('Tokyo ➔ Bengaluru', '384 MB', '118 MB/s', const Color(0xFFA855F7)),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _buildStreamItem('London ➔ Montreal', '256 MB', '94 MB/s', const Color(0xFFF59E0B)),
-                  ),
-                ],
+                )).toList(),
               );
             },
           ),

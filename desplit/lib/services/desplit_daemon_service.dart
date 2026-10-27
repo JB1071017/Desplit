@@ -26,6 +26,8 @@ class DeSplitDaemonService {
       ValueNotifier<Map<String, dynamic>?>(null);
   final ValueNotifier<List<MeshNode>> meshNodes =
       ValueNotifier<List<MeshNode>>([]);
+  final ValueNotifier<Map<String, dynamic>?> fedAvgState =
+      ValueNotifier<Map<String, dynamic>?>(null);
 
   bool _isInitialized = false;
 
@@ -37,16 +39,18 @@ class DeSplitDaemonService {
     _fetchStatus();
     _fetchHardware();
     _fetchCluster();
+    _fetchFedAvg();
 
     // High frequency metrics polling (every 1.5 seconds)
     _metricsTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) {
       _fetchHardware();
     });
 
-    // Cluster state polling (every 3 seconds)
-    _clusterTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+    // Cluster state and FedAvg polling (every 2.5 seconds)
+    _clusterTimer = Timer.periodic(const Duration(milliseconds: 2500), (_) {
       _fetchStatus();
       _fetchCluster();
+      _fetchFedAvg();
     });
   }
 
@@ -131,6 +135,58 @@ class DeSplitDaemonService {
       debugPrint('Error toggling daemon pool: $e');
     }
     return online;
+  }
+
+  /// Poll FedAvg Swarm State
+  Future<void> _fetchFedAvg() async {
+    try {
+      final uri = Uri.parse('$daemonBaseUrl/api/v1/fedavg/state');
+      final request = await _httpClient.getUrl(uri);
+      final response = await request.close();
+      if (response.statusCode == 200) {
+        final body = await response.transform(utf8.decoder).join();
+        final data = jsonDecode(body) as Map<String, dynamic>;
+        fedAvgState.value = data;
+      }
+    } catch (_) {
+      // Keep existing cache
+    }
+  }
+
+  /// Toggle Pause/Resume for FedAvg Training
+  Future<bool> toggleFedAvgTraining() async {
+    try {
+      final uri = Uri.parse('$daemonBaseUrl/api/v1/fedavg/toggle');
+      final request = await _httpClient.postUrl(uri);
+      request.headers.contentType = ContentType.json;
+      final response = await request.close();
+      if (response.statusCode == 200) {
+        final body = await response.transform(utf8.decoder).join();
+        final data = jsonDecode(body) as Map<String, dynamic>;
+        await _fetchFedAvg();
+        return data['is_training'] as bool? ?? true;
+      }
+    } catch (e) {
+      debugPrint('Error toggling fedavg: $e');
+    }
+    return true;
+  }
+
+  /// Trigger Manual FedAvg Consensus Weight Aggregation
+  Future<bool> triggerFedAvgAggregation() async {
+    try {
+      final uri = Uri.parse('$daemonBaseUrl/api/v1/fedavg/aggregate');
+      final request = await _httpClient.postUrl(uri);
+      request.headers.contentType = ContentType.json;
+      final response = await request.close();
+      if (response.statusCode == 200) {
+        await _fetchFedAvg();
+        return true;
+      }
+    } catch (e) {
+      debugPrint('Error triggering fedavg aggregation: $e');
+    }
+    return false;
   }
 
   /// Convert backend cluster state into dynamic MeshNodes for the NetworkView

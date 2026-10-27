@@ -28,6 +28,7 @@ from hardware.profiler import HardwareProfile, profile_local_hardware
 from network.identity import NodeIdentity, get_or_create_identity
 from network.pool_registry import GlobalPoolRegistry
 from network.stun_client import NetworkEndpoint, discover_public_endpoint
+from fedavg.coordinator import FedAvgCoordinator
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("desplit.daemon")
@@ -41,6 +42,7 @@ class DaemonState:
         self.endpoint: NetworkEndpoint = discover_public_endpoint()
         self.hardware: HardwareProfile = profile_local_hardware(run_benchmark=True)
         self.registry: GlobalPoolRegistry = GlobalPoolRegistry(cluster_id=self.cluster_id)
+        self.fedavg: FedAvgCoordinator = FedAvgCoordinator(registry=self.registry)
 
         # Register local machine ONLY (100% real data)
         self._register_local()
@@ -188,6 +190,10 @@ class DeSplitAPIHandler(BaseHTTPRequestHandler):
             state = DAEMON_STATE.registry.get_unified_state()
             self._send_json(state.to_dict())
 
+        elif path == "/api/v1/fedavg/state":
+            state = DAEMON_STATE.fedavg.get_state()
+            self._send_json(state)
+
         else:
             self._send_json({"error": "Endpoint not found"}, status_code=404)
 
@@ -213,6 +219,16 @@ class DeSplitAPIHandler(BaseHTTPRequestHandler):
                     "message": f"Node switched to {'ONLINE' if DAEMON_STATE.is_online else 'OFFLINE'}",
                 }
             )
+
+        elif path == "/api/v1/fedavg/toggle":
+            training = payload.get("training", None)
+            is_training = DAEMON_STATE.fedavg.toggle_training(training)
+            self._send_json({"success": True, "is_training": is_training})
+
+        elif path == "/api/v1/fedavg/aggregate":
+            res = DAEMON_STATE.fedavg.trigger_aggregation()
+            self._send_json(res)
+
         else:
             self._send_json({"error": "Endpoint not found"}, status_code=404)
 
