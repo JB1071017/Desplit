@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import '../../services/desplit_daemon_service.dart';
 import '../../services/theme_service.dart';
 import '../../theme/app_colors.dart';
 import 'network/world_atlas_service.dart';
@@ -24,7 +25,6 @@ class _PipelineStage {
   final int tempCelsius;
   final int powerWatts;
   final bool hasWarning;
-  final String? warningMessage;
   final String status;
 
   const _PipelineStage({
@@ -47,7 +47,6 @@ class _PipelineStage {
     required this.tempCelsius,
     required this.powerWatts,
     this.hasWarning = false,
-    this.warningMessage,
     this.status = 'Running',
   });
 }
@@ -74,7 +73,74 @@ class _ModelSlicingViewState extends State<ModelSlicingView>
   int? _hoveredStageIndex;
   int _selectedStageIndex = 0; // Default: Stage 1 selected
 
-  late final List<_PipelineStage> _stages;
+  int get _safeSelectedStageIndex =>
+      _selectedStageIndex.clamp(0, (_stages.length - 1).clamp(0, 9999));
+
+  List<_PipelineStage> get _stages {
+    final liveNodes = DeSplitDaemonService.instance.meshNodes.value;
+    if (liveNodes.isEmpty) {
+      return const [
+        _PipelineStage(
+          stageNumber: 1,
+          nodeName: 'OPERATOR (YOU)',
+          location: 'Local Host • Tier 0',
+          hardware: 'Intel(R) Iris(R) Xe • 12 Cores / 16 GB RAM',
+          layerRange: 'Layers 1–32 (Consolidated Pipeline)',
+          layerDescription:
+              'Local pipeline execution ready across pooled CPU/GPU compute cores',
+          allocatedMemoryGb: 3.2,
+          weightMemoryGb: 2.8,
+          activationMemoryGb: 0.4,
+          totalVramGb: 16.0,
+          stageLatencyMs: 18,
+          forwardMs: 6,
+          backwardMs: 12,
+          quicLatencyMs: 0,
+          bubbleMs: 1,
+          gpuLoadPercent: 14,
+          tempCelsius: 48,
+          powerWatts: 28,
+          hasWarning: false,
+          status: 'Ready',
+        ),
+      ];
+    }
+
+    return List.generate(liveNodes.length, (idx) {
+      final node = liveNodes[idx];
+      final isLocal = node.isUser;
+      const totalLayers = 32;
+      final stageCount = liveNodes.length;
+      final layersPerStage = (totalLayers / stageCount).ceil();
+      final startLayer = idx * layersPerStage + 1;
+      final endLayer = ((idx + 1) * layersPerStage).clamp(1, totalLayers);
+
+      return _PipelineStage(
+        stageNumber: idx + 1,
+        nodeName: node.title,
+        location: node.region,
+        hardware: node.gpu,
+        layerRange: 'Layers $startLayer–$endLayer',
+        layerDescription: isLocal
+            ? 'Input Embeddings & Attention Blocks on local operator'
+            : 'Distributed Attention & SwiGLU MLP Blocks over P2P mesh',
+        allocatedMemoryGb: 3.2,
+        weightMemoryGb: 2.5,
+        activationMemoryGb: 0.7,
+        totalVramGb: 16.0,
+        stageLatencyMs: 24 + (idx * 6),
+        forwardMs: 8,
+        backwardMs: 16,
+        quicLatencyMs: isLocal ? 0 : 12,
+        bubbleMs: 2,
+        gpuLoadPercent: 22,
+        tempCelsius: 50,
+        powerWatts: 35,
+        hasWarning: false,
+        status: 'Online',
+      );
+    });
+  }
 
   @override
   void initState() {
@@ -85,102 +151,16 @@ class _ModelSlicingViewState extends State<ModelSlicingView>
     )..repeat();
 
     WorldAtlasService.instance.loadAtlas();
+    DeSplitDaemonService.instance.meshNodes.addListener(_onDaemonNodesChanged);
+  }
 
-    _stages = const [
-      _PipelineStage(
-        stageNumber: 1,
-        nodeName: 'This PC (Local)',
-        location: 'Local Host • Operator',
-        hardware: 'NVIDIA RTX 4070 (8 GB)',
-        layerRange: 'Layers 1–8',
-        layerDescription: 'Input Embeddings, RMSNorm & Transformer Attention Blocks 1–8',
-        allocatedMemoryGb: 5.8,
-        weightMemoryGb: 4.2,
-        activationMemoryGb: 1.6,
-        totalVramGb: 8.0,
-        stageLatencyMs: 38,
-        forwardMs: 12,
-        backwardMs: 26,
-        quicLatencyMs: 2,
-        bubbleMs: 4,
-        gpuLoadPercent: 84,
-        tempCelsius: 68,
-        powerWatts: 132,
-        hasWarning: true,
-        warningMessage: 'Memory pressure: 72% VRAM utilized',
-        status: 'Running',
-      ),
-      _PipelineStage(
-        stageNumber: 2,
-        nodeName: 'Node-SG',
-        location: 'Singapore • AP-Southeast',
-        hardware: 'NVIDIA RTX 3080 (10 GB)',
-        layerRange: 'Layers 9–16',
-        layerDescription: 'Self-Attention & MLP Feed-Forward Blocks 9–16',
-        allocatedMemoryGb: 5.4,
-        weightMemoryGb: 4.2,
-        activationMemoryGb: 1.2,
-        totalVramGb: 10.0,
-        stageLatencyMs: 40,
-        forwardMs: 13,
-        backwardMs: 27,
-        quicLatencyMs: 14,
-        bubbleMs: 3,
-        gpuLoadPercent: 78,
-        tempCelsius: 64,
-        powerWatts: 180,
-        hasWarning: false,
-        status: 'Running',
-      ),
-      _PipelineStage(
-        stageNumber: 3,
-        nodeName: 'Node-IN',
-        location: 'Bengaluru • AP-South',
-        hardware: 'NVIDIA RTX 4060 Ti (16 GB)',
-        layerRange: 'Layers 17–24',
-        layerDescription: 'Transformer Attention & SwiGLU MLP Blocks 17–24',
-        allocatedMemoryGb: 5.6,
-        weightMemoryGb: 4.2,
-        activationMemoryGb: 1.4,
-        totalVramGb: 16.0,
-        stageLatencyMs: 42,
-        forwardMs: 14,
-        backwardMs: 28,
-        quicLatencyMs: 16,
-        bubbleMs: 3,
-        gpuLoadPercent: 76,
-        tempCelsius: 62,
-        powerWatts: 140,
-        hasWarning: false,
-        status: 'Running',
-      ),
-      _PipelineStage(
-        stageNumber: 4,
-        nodeName: 'Node-DE',
-        location: 'Frankfurt • EU-Central',
-        hardware: 'NVIDIA A10G (24 GB)',
-        layerRange: 'Layers 25–32',
-        layerDescription: 'Transformer Blocks 25–32, Final RMSNorm & LM Head Logit Projection',
-        allocatedMemoryGb: 5.2,
-        weightMemoryGb: 4.2,
-        activationMemoryGb: 1.0,
-        totalVramGb: 24.0,
-        stageLatencyMs: 41,
-        forwardMs: 13,
-        backwardMs: 28,
-        quicLatencyMs: 12,
-        bubbleMs: 3,
-        gpuLoadPercent: 74,
-        tempCelsius: 58,
-        powerWatts: 150,
-        hasWarning: false,
-        status: 'Running',
-      ),
-    ];
+  void _onDaemonNodesChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    DeSplitDaemonService.instance.meshNodes.removeListener(_onDaemonNodesChanged);
     _animController.dispose();
     super.dispose();
   }
@@ -402,7 +382,7 @@ class _ModelSlicingViewState extends State<ModelSlicingView>
                         // Right Column: Contextual Stage Details Panel
                         Expanded(
                           flex: 4,
-                          child: _buildStageDetailsPanel(_stages[_selectedStageIndex], isDark),
+                          child: _buildStageDetailsPanel(_stages[_safeSelectedStageIndex], isDark),
                         ),
                       ],
                     );
@@ -416,7 +396,7 @@ class _ModelSlicingViewState extends State<ModelSlicingView>
                       const SizedBox(height: 12),
                       _buildIntegratedMemoryBar(isDark),
                       const SizedBox(height: 14),
-                      _buildStageDetailsPanel(_stages[_selectedStageIndex], isDark),
+                      _buildStageDetailsPanel(_stages[_safeSelectedStageIndex], isDark),
                       const SizedBox(height: 14),
                       _buildGlobeContainer(isDark),
                     ],

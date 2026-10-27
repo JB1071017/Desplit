@@ -42,11 +42,29 @@ class DaemonState:
         self.hardware: HardwareProfile = profile_local_hardware(run_benchmark=True)
         self.registry: GlobalPoolRegistry = GlobalPoolRegistry(cluster_id=self.cluster_id)
 
-        # Register local machine
+        # Register local machine ONLY (100% real data)
         self._register_local()
 
-        # Seed global peer nodes
-        self._seed_remote_peers()
+        # Start real gRPC server on 50051 so external physical machines can join
+        try:
+            from network.pool_server import start_pool_server
+            self.grpc_server = start_pool_server(port=50051, registry=self.registry)
+            logger.info("gRPC Pool Server listening on 0.0.0.0:50051 for incoming real nodes")
+        except Exception as e:
+            logger.warning(f"gRPC server start note: {e}")
+
+        # Start heartbeat daemon thread to keep local real node alive in registry
+        self._heartbeat_thread = threading.Thread(target=self._local_heartbeat_loop, daemon=True)
+        self._heartbeat_thread.start()
+
+    def _local_heartbeat_loop(self):
+        while True:
+            try:
+                if self.is_online:
+                    self.registry.record_heartbeat(self.identity.node_id)
+            except Exception:
+                pass
+            time.sleep(10)
 
     def _register_local(self):
         hostname = socket.gethostname()
@@ -60,67 +78,11 @@ class DaemonState:
             hardware=hw_dict,
         )
 
-    def _seed_remote_peers(self):
-        # Peer A: Tokyo (2x RTX 3080, 32 CPU Cores, 64GB RAM)
-        self.registry.register_or_update_node(
-            node_id="node_tokyo_rtx3080",
-            public_key="3b81f19639c016e788e0b67576a911a37c95b6c97a55df946e38b307ec531101",
-            hostname="Tokyo Hub (Tier 1)",
-            endpoint={"public_ip": "133.242.18.91", "public_port": 50051, "local_ip": "192.168.0.14", "local_port": 50051, "nat_type": "FullCone"},
-            hardware={
-                "gpus": [
-                    {"name": "NVIDIA GeForce RTX 3080", "vendor": "NVIDIA", "total_vram_mb": 10240, "free_vram_mb": 9800, "compute_capability": "8.6", "device_index": 0, "temperature_c": 52.0, "has_cuda": True},
-                    {"name": "NVIDIA GeForce RTX 3080", "vendor": "NVIDIA", "total_vram_mb": 10240, "free_vram_mb": 9800, "compute_capability": "8.6", "device_index": 1, "temperature_c": 54.0, "has_cuda": True},
-                ],
-                "cpu": {"name": "AMD Ryzen 9 5950X", "architecture": "x86_64", "physical_cores": 16, "logical_cores": 32, "frequency_mhz": 3400.0, "has_avx": True, "has_avx2": True, "has_avx512": False},
-                "ram": {"total_ram_mb": 65536, "available_ram_mb": 58000},
-                "benchmark": {"cpu_gflops": 185.0, "gpu_gflops": 59000.0, "benchmark_duration_ms": 12.0},
-                "os_name": "Linux Ubuntu 22.04 LTS",
-                "total_vram_mb": 20480,
-                "free_vram_mb": 19600,
-            },
-        )
-
-        # Peer B: Berlin (1x RTX 4090, 32 CPU Cores, 64GB RAM)
-        self.registry.register_or_update_node(
-            node_id="node_berlin_rtx4090",
-            public_key="a794e792c90e66c2847a98b48f9801a357f6b6c97a55df946e38b307ec532299",
-            hostname="Berlin Hub (EU-Central)",
-            endpoint={"public_ip": "188.138.45.102", "public_port": 50051, "local_ip": "10.0.1.22", "local_port": 50051, "nat_type": "Restricted"},
-            hardware={
-                "gpus": [
-                    {"name": "NVIDIA GeForce RTX 4090", "vendor": "NVIDIA", "total_vram_mb": 24576, "free_vram_mb": 24000, "compute_capability": "8.9", "device_index": 0, "temperature_c": 48.0, "has_cuda": True},
-                ],
-                "cpu": {"name": "Intel Core i9-13900K", "architecture": "x86_64", "physical_cores": 24, "logical_cores": 32, "frequency_mhz": 3000.0, "has_avx": True, "has_avx2": True, "has_avx512": False},
-                "ram": {"total_ram_mb": 65536, "available_ram_mb": 61000},
-                "benchmark": {"cpu_gflops": 240.0, "gpu_gflops": 82000.0, "benchmark_duration_ms": 9.5},
-                "os_name": "Linux Ubuntu 24.04 LTS",
-                "total_vram_mb": 24576,
-                "free_vram_mb": 24000,
-            },
-        )
-
-        # Peer C: London (CPU Cluster: 64 Cores, 128GB RAM)
-        self.registry.register_or_update_node(
-            node_id="node_london_cpu_farm",
-            public_key="c102a9817f54b6c97a55df946e38b307ec533311894a794e792c90e66c2847a9",
-            hostname="London Farm (CPU Shard)",
-            endpoint={"public_ip": "51.140.82.15", "public_port": 50051, "local_ip": "10.2.0.5", "local_port": 50051, "nat_type": "FullCone"},
-            hardware={
-                "gpus": [],
-                "cpu": {"name": "AMD EPYC 7742 64-Core", "architecture": "x86_64", "physical_cores": 64, "logical_cores": 128, "frequency_mhz": 2250.0, "has_avx": True, "has_avx2": True, "has_avx512": True},
-                "ram": {"total_ram_mb": 131072, "available_ram_mb": 115000},
-                "benchmark": {"cpu_gflops": 820.0, "gpu_gflops": 0.0, "benchmark_duration_ms": 15.0},
-                "os_name": "Debian 12 Bookworm",
-                "total_vram_mb": 0,
-                "free_vram_mb": 0,
-            },
-        )
-
     def set_online(self, online: bool):
         self.is_online = online
         if online:
             self._register_local()
+            self.registry.record_heartbeat(self.identity.node_id)
         else:
             self.registry.unregister_node(self.identity.node_id)
         logger.info(f"Master Power Switch set to {'ONLINE' if online else 'OFFLINE'}")

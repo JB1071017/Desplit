@@ -48,264 +48,6 @@ class _NetworkViewState extends State<NetworkView>
       icon: Icons.memory_rounded,
       isUser: true,
     ),
-    // Tier 1 Cluster: Frankfurt (Highlighted Active Route)
-    MeshNode(
-      id: 'node_web_1',
-      title: 'WEB SERVER',
-      username: '@solaris_core',
-      gpu: 'NVIDIA RTX 4090 24GB',
-      contribution: '142.5 TFLOPS • 18.2 GB VRAM',
-      latency: '14 ms',
-      region: 'Frankfurt (EU-West)',
-      relativePos: Offset(0.39, 0.35),
-      icon: Icons.dns_rounded,
-      isSpecialRoute: true,
-    ),
-    // Tier 1 Cluster: London
-    MeshNode(
-      id: 'node_desk_1',
-      title: 'CO DESKTOP',
-      username: '@tensor_blade',
-      gpu: 'NVIDIA RTX 3080 Ti 12GB',
-      contribution: '78.2 TFLOPS • 9.8 GB VRAM',
-      latency: '24 ms',
-      region: 'London (EU-North)',
-      relativePos: Offset(0.61, 0.35),
-      icon: Icons.computer_rounded,
-    ),
-    // Tier 1 Cluster: Paris
-    MeshNode(
-      id: 'node_cluster_1',
-      title: 'CO DESKTOP',
-      username: '@quant_shard',
-      gpu: 'NVIDIA RTX 3090 24GB',
-      contribution: '72.6 TFLOPS • 14.5 GB VRAM',
-      latency: '19 ms',
-      region: 'Paris (EU-West)',
-      relativePos: Offset(0.36, 0.50),
-      icon: Icons.computer_rounded,
-    ),
-    // Tier 1 Cluster: Bengaluru
-    MeshNode(
-      id: 'node_in_bengaluru',
-      title: 'CO DESKTOP',
-      username: '@vedic_compute',
-      gpu: 'NVIDIA RTX 4060 Ti 16GB',
-      contribution: '22.0 TFLOPS • 14.2 GB VRAM',
-      latency: '28 ms',
-      region: 'Bengaluru (IN-Central)',
-      relativePos: Offset(0.64, 0.50),
-      icon: Icons.computer_rounded,
-    ),
-    // Tier 1 Cluster: Zurich
-    MeshNode(
-      id: 'node_web_3',
-      title: 'WEB SERVER',
-      username: '@deep_tensor',
-      gpu: 'AMD Radeon RX 7900 XTX',
-      contribution: '61.4 TFLOPS • 16.0 GB VRAM',
-      latency: '22 ms',
-      region: 'Zurich (EU-Central)',
-      relativePos: Offset(0.40, 0.65),
-      icon: Icons.dns_rounded,
-    ),
-    // Tier 1 Cluster: Amsterdam
-    MeshNode(
-      id: 'node_web_2',
-      title: 'WEB SERVER',
-      username: '@hyper_thread',
-      gpu: '2x NVIDIA RTX 4090 48GB',
-      contribution: '270.0 TFLOPS • 36.4 GB VRAM',
-      latency: '26 ms',
-      region: 'Amsterdam (EU-Central)',
-      relativePos: Offset(0.60, 0.65),
-      icon: Icons.dns_rounded,
-    ),
-
-    // Tier 2 Swarm: Oregon (US-West)
-    MeshNode(
-      id: 'node_us_west',
-      title: 'WEB SERVER',
-      username: '@silicon_matrix',
-      gpu: '4x NVIDIA RTX 4090 96GB',
-      contribution: '540.0 TFLOPS • 96.0 GB VRAM',
-      latency: '68 ms',
-      region: 'Oregon (US-West)',
-      relativePos: Offset(0.50, 0.17),
-      icon: Icons.dns_rounded,
-    ),
-    // Tier 2 Swarm: Dublin
-    MeshNode(
-      id: 'node_desk_2',
-      title: 'CO DESKTOP',
-      username: '@cyber_falcon',
-      gpu: 'Apple M2 Ultra 192GB',
-      contribution: '92.4 TFLOPS • 64.0 GB VRAM',
-      latency: '32 ms',
-      region: 'Dublin (EU-West)',
-      relativePos: Offset(0.27, 0.26),
-      icon: Icons.computer_rounded,
-    ),
-    // Tier 2 Swarm: Stockholm
-    MeshNode(
-      id: 'node_cluster_2',
-      title: 'WEB SERVER',
-      username: '@crypto_pilot',
-      gpu: 'NVIDIA RTX 4080 Super',
-      contribution: '84.6 TFLOPS • 11.2 GB VRAM',
-      latency: '36 ms',
-      region: 'Stockholm (EU-North)',
-      relativePos: Offset(0.73, 0.26),
-      icon: Icons.dns_rounded,
-    ),
-    // Tier 2 Swarm: Virginia
-    MeshNode(
-      id: 'node_desk_3',
-      title: 'CO DESKTOP',
-      username: '@valkyrie_ai',
-      gpu: 'NVIDIA RTX 4080 16GB',
-      contribution: '88.0 TFLOPS • 12.0 GB VRAM',
-      latency: '45 ms',
-      region: 'Virginia (US-East)',
-      relativePos: Offset(0.20, 0.44),
-      icon: Icons.computer_rounded,
-    ),
-    // Tier 2 Swarm: Tokyo
-    MeshNode(
-      id: 'node_desk_4',
-      title: 'CO DESKTOP',
-      username: '@aurora_node',
-      gpu: 'NVIDIA A100 80GB SXM',
-      contribution: '312.0 TFLOPS • 72.0 GB VRAM',
-      latency: '58 ms',
-      region: 'Tokyo (AP-East)',
-      relativePos: Offset(0.80, 0.44),
-      icon: Icons.computer_rounded,
-    ),
-    // Tier 2 Swarm: Montreal
-    MeshNode(
-      id: 'node_na_montreal',
-      title: 'CO DESKTOP',
-      username: '@apex_tensor',
-      gpu: 'Tesla V100 32GB',
-      contribution: '125.0 TFLOPS • 29.4 GB VRAM',
-      latency: '52 ms',
-      region: 'Montreal (NA-East)',
-      relativePos: Offset(0.24, 0.63),
-      icon: Icons.computer_rounded,
-    ),
-    // Tier 2 Swarm: Singapore
-    MeshNode(
-      id: 'node_ap_singapore',
-      title: 'WEB SERVER',
-      username: '@merlion_ai',
-      gpu: 'NVIDIA H100 80GB',
-      contribution: '312.0 TFLOPS • 72.4 GB VRAM',
-      latency: '62 ms',
-      region: 'Singapore (AP-Southeast)',
-      relativePos: Offset(0.76, 0.63),
-      icon: Icons.dns_rounded,
-    ),
-    // Tier 2 Swarm: Frankfurt #2
-    MeshNode(
-      id: 'node_cluster_3',
-      title: 'CO DESKTOP',
-      username: '@vortex_compute',
-      gpu: 'NVIDIA RTX 4090 24GB',
-      contribution: '138.0 TFLOPS • 21.0 GB VRAM',
-      latency: '34 ms',
-      region: 'Frankfurt #2',
-      relativePos: Offset(0.35, 0.81),
-      icon: Icons.computer_rounded,
-    ),
-    // Tier 2 Swarm: Milan
-    MeshNode(
-      id: 'node_web_4',
-      title: 'WEB SERVER',
-      username: '@neuron_flux',
-      gpu: 'NVIDIA RTX 4070 Ti 12GB',
-      contribution: '48.2 TFLOPS • 8.1 GB VRAM',
-      latency: '38 ms',
-      region: 'Milan (EU-South)',
-      relativePos: Offset(0.65, 0.81),
-      icon: Icons.dns_rounded,
-    ),
-
-    // Tier 3 Edge Constellation: São Paulo
-    MeshNode(
-      id: 'node_sa_brazil',
-      title: 'CO DESKTOP',
-      username: '@samba_cluster',
-      gpu: 'NVIDIA RTX 4080 16GB',
-      contribution: '88.0 TFLOPS • 14.2 GB VRAM',
-      latency: '112 ms',
-      region: 'São Paulo (SA-East)',
-      relativePos: Offset(0.10, 0.52),
-      icon: Icons.computer_rounded,
-    ),
-    // Tier 3 Edge Constellation: Sydney
-    MeshNode(
-      id: 'node_ap_sydney',
-      title: 'CO DESKTOP',
-      username: '@southern_cross',
-      gpu: 'Apple M3 Max 128GB',
-      contribution: '76.0 TFLOPS • 48.0 GB VRAM',
-      latency: '135 ms',
-      region: 'Sydney (AP-South)',
-      relativePos: Offset(0.90, 0.52),
-      icon: Icons.computer_rounded,
-    ),
-  ];
-
-  // Interconnected Decentralized Mesh Links
-  static const List<MeshLink> _links = [
-    // 1. Primary Backbone Links (Operator Core to Tier-1 Cluster)
-    MeshLink(fromId: 'node_user', toId: 'node_web_1', isHighlighted: true, packetSpeed: 1.3),
-    MeshLink(fromId: 'node_user', toId: 'node_desk_1', packetSpeed: 0.95),
-    MeshLink(fromId: 'node_user', toId: 'node_cluster_1', packetSpeed: 1.1),
-    MeshLink(fromId: 'node_user', toId: 'node_in_bengaluru', packetSpeed: 1.05),
-    MeshLink(fromId: 'node_user', toId: 'node_web_3', packetSpeed: 0.9),
-    MeshLink(fromId: 'node_user', toId: 'node_web_2', packetSpeed: 1.0),
-
-    // 2. Tier 1 Hexagonal Mesh Ring
-    MeshLink(fromId: 'node_web_1', toId: 'node_desk_1', packetSpeed: 0.85),
-    MeshLink(fromId: 'node_desk_1', toId: 'node_in_bengaluru', packetSpeed: 0.9),
-    MeshLink(fromId: 'node_in_bengaluru', toId: 'node_web_2', packetSpeed: 1.1),
-    MeshLink(fromId: 'node_web_2', toId: 'node_web_3', packetSpeed: 0.8),
-    MeshLink(fromId: 'node_web_3', toId: 'node_cluster_1', packetSpeed: 0.95),
-    MeshLink(fromId: 'node_cluster_1', toId: 'node_web_1', packetSpeed: 1.15),
-
-    // 3. Radial Interconnects (Tier 1 <-> Tier 2 Bridges)
-    MeshLink(fromId: 'node_web_1', toId: 'node_desk_2', isHighlighted: true, packetSpeed: 1.25),
-    MeshLink(fromId: 'node_web_1', toId: 'node_us_west', packetSpeed: 0.9),
-    MeshLink(fromId: 'node_desk_1', toId: 'node_us_west', packetSpeed: 0.8),
-    MeshLink(fromId: 'node_desk_1', toId: 'node_cluster_2', packetSpeed: 1.0),
-    MeshLink(fromId: 'node_in_bengaluru', toId: 'node_desk_4', packetSpeed: 0.95),
-    MeshLink(fromId: 'node_in_bengaluru', toId: 'node_ap_singapore', packetSpeed: 1.1),
-    MeshLink(fromId: 'node_web_2', toId: 'node_ap_singapore', packetSpeed: 1.0),
-    MeshLink(fromId: 'node_web_2', toId: 'node_web_4', packetSpeed: 0.85),
-    MeshLink(fromId: 'node_web_3', toId: 'node_cluster_3', packetSpeed: 1.05),
-    MeshLink(fromId: 'node_cluster_1', toId: 'node_desk_3', packetSpeed: 0.9),
-    MeshLink(fromId: 'node_cluster_1', toId: 'node_na_montreal', packetSpeed: 1.0),
-
-    // 4. Tier 2 Outer Mesh Ring
-    MeshLink(fromId: 'node_desk_2', toId: 'node_us_west', packetSpeed: 0.85),
-    MeshLink(fromId: 'node_us_west', toId: 'node_cluster_2', packetSpeed: 0.95),
-    MeshLink(fromId: 'node_cluster_2', toId: 'node_desk_4', packetSpeed: 0.8),
-    MeshLink(fromId: 'node_desk_4', toId: 'node_ap_singapore', packetSpeed: 1.05),
-    MeshLink(fromId: 'node_ap_singapore', toId: 'node_web_4', packetSpeed: 0.9),
-    MeshLink(fromId: 'node_web_4', toId: 'node_cluster_3', packetSpeed: 1.1),
-    MeshLink(fromId: 'node_cluster_3', toId: 'node_na_montreal', packetSpeed: 0.85),
-    MeshLink(fromId: 'node_na_montreal', toId: 'node_desk_3', packetSpeed: 0.9),
-    MeshLink(fromId: 'node_desk_3', toId: 'node_desk_2', packetSpeed: 1.0),
-
-    // 5. Tier 3 Global Edge Mesh Conduits
-    MeshLink(fromId: 'node_desk_3', toId: 'node_sa_brazil', packetSpeed: 0.8),
-    MeshLink(fromId: 'node_na_montreal', toId: 'node_sa_brazil', packetSpeed: 0.9),
-    MeshLink(fromId: 'node_cluster_3', toId: 'node_sa_brazil', packetSpeed: 0.75),
-    MeshLink(fromId: 'node_desk_4', toId: 'node_ap_sydney', packetSpeed: 0.9),
-    MeshLink(fromId: 'node_ap_singapore', toId: 'node_ap_sydney', packetSpeed: 1.0),
-    MeshLink(fromId: 'node_cluster_2', toId: 'node_ap_sydney', packetSpeed: 0.85),
   ];
 
   // Key Indicators (Image 1 Radar Chart)
@@ -857,10 +599,22 @@ class _NetworkViewState extends State<NetworkView>
               }
 
               final activeNodes = _filteredNodes;
-              final activeNodeIds = activeNodes.map((n) => n.id).toSet();
-              final activeLinks = _links
-                  .where((l) => activeNodeIds.contains(l.fromId) && activeNodeIds.contains(l.toId))
-                  .toList();
+              final userNode = activeNodes.where((n) => n.isUser).firstOrNull;
+              final List<MeshLink> activeLinks = [];
+              if (userNode != null) {
+                for (final peer in activeNodes) {
+                  if (!peer.isUser) {
+                    activeLinks.add(
+                      MeshLink(
+                        fromId: userNode.id,
+                        toId: peer.id,
+                        isHighlighted: peer.isSpecialRoute,
+                        packetSpeed: 1.0,
+                      ),
+                    );
+                  }
+                }
+              }
 
               return Stack(
                 children: [

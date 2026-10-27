@@ -168,16 +168,25 @@ class DeSplitDaemonService {
       String gpuName = 'CPU Cluster';
       String contribution = '';
 
+      final totalVramMb = (hw['total_vram_mb'] as num? ?? 0).toInt();
+      final totalRamGb = ((ram['total_ram_mb'] as num? ?? 0) / 1024).toStringAsFixed(1);
+      final cores = cpu['logical_cores'] ?? 12;
+      final gflops = (bench['gpu_gflops'] as num? ?? 0.0) + (bench['cpu_gflops'] as num? ?? 0.0);
+      final perfStr = gflops >= 1000
+          ? '${(gflops / 1000).toStringAsFixed(1)} TFLOPS'
+          : '${gflops.toStringAsFixed(1)} GFLOPS';
+
       if (gpus.isNotEmpty) {
         final g0 = gpus[0] as Map<String, dynamic>;
         gpuName = g0['name'] as String? ?? 'GPU';
-        final vramGb = ((hw['total_vram_mb'] as num? ?? 0) / 1024).toStringAsFixed(1);
-        final gflops = (bench['gpu_gflops'] as num? ?? 0.0) + (bench['cpu_gflops'] as num? ?? 0.0);
-        contribution = '${(gflops / 1000).toStringAsFixed(1)} TFLOPS • $vramGb GB VRAM';
+        if (totalVramMb >= 1024) {
+          final vramGb = (totalVramMb / 1024).toStringAsFixed(1);
+          contribution = '$perfStr • $vramGb GB VRAM';
+        } else {
+          contribution = '$perfStr • $cores Cores • $totalRamGb GB RAM';
+        }
       } else {
-        final cores = cpu['logical_cores'] ?? 16;
-        final ramGb = ((ram['total_ram_mb'] as num? ?? 0) / 1024).toStringAsFixed(1);
-        contribution = '$cores Cores • $ramGb GB RAM';
+        contribution = '$perfStr • $cores Cores • $totalRamGb GB RAM';
       }
 
       final pubIp = ep['public_ip'] as String? ?? '127.0.0.1';

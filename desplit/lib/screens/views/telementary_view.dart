@@ -42,19 +42,19 @@ class _TelementaryViewState extends State<TelementaryView> {
   late List<double> _wifiHistory;
 
   // Host Real-time Metric Values
-  double _gpu3DValue = 12.0;
+  final double _gpu3DValue = 12.0;
   static const double _gpuCopyValue = 0.0;
   static const double _gpuDecodeValue = 0.0;
   static const double _gpuProcessingValue = 0.0;
   double _gpuSharedMemValue = 0.7; // out of 7.9 GB
 
-  double _amd3DValue = 18.0;
-  double _amdDedicatedMemValue = 2.4; // out of 24.0 GB
+  final double _amd3DValue = 18.0;
+  final double _amdDedicatedMemValue = 2.4; // out of 24.0 GB
 
   double _cpuValue = 34.0;
   double _cpuSpeed = 1.00;
   double _memoryValue = 12.7; // out of 15.8 GB
-  double _diskValue = 6.0;
+  final double _diskValue = 6.0;
 
   // -------------------------------------------------------------
   // Swarm Contributed Historical Data & Metrics
@@ -72,28 +72,28 @@ class _TelementaryViewState extends State<TelementaryView> {
   late List<double> _contribGpuVramHistory;
 
   // Contributed Real-time Metrics
-  double _contribCpuLoad = 76.0;
+  final double _contribCpuLoad = 76.0;
   double _contribCpuGflops = 14.2;
   static const int _contribCpuCores = 8;
 
-  double _contribMemUsed = 4.2; // out of 6.0 GB contributed
+  final double _contribMemUsed = 4.2; // out of 6.0 GB contributed
   static const double _contribMemAllocated = 6.0;
 
-  double _contribDiskActive = 22.0;
-  double _contribDiskUsed = 42.6; // out of 120 GB
+  final double _contribDiskActive = 22.0;
+  final double _contribDiskUsed = 42.6; // out of 120 GB
   static const double _contribDiskAllocated = 120.0;
 
-  double _contribEthSend = 14.2; // MB/s
-  double _contribEthRecv = 18.5; // MB/s
+  final double _contribEthSend = 14.2; // MB/s
+  final double _contribEthRecv = 18.5; // MB/s
 
-  double _contribWifiSend = 180.0; // Kbps
-  double _contribWifiRecv = 240.0; // Kbps
+  final double _contribWifiSend = 180.0; // Kbps
+  final double _contribWifiRecv = 240.0; // Kbps
 
   double _contribGpuTensorLoad = 82.0;
-  double _contribGpuCopyLoad = 22.0;
-  double _contribGpuDecodeLoad = 12.0;
-  double _contribGpuProcLoad = 48.0;
-  double _contribGpuVramUsed = 0.70; // 0.7 GB (Intel) or 16.0 GB (AMD)
+  final double _contribGpuCopyLoad = 22.0;
+  final double _contribGpuDecodeLoad = 12.0;
+  final double _contribGpuProcLoad = 48.0;
+  final double _contribGpuVramUsed = 0.70; // 0.7 GB (Intel) or 16.0 GB (AMD)
 
   @override
   void initState() {
