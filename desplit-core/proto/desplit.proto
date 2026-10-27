@@ -1,0 +1,152 @@
+syntax = "proto3";
+
+package desplit.pool;
+
+// Service for global node discovery, pooling, and heartbeat synchronization
+service PoolService {
+  // Register a new node into the unified pool
+  rpc RegisterNode (RegistrationRequest) returns (RegistrationResponse);
+
+  // Send periodic heartbeats to maintain active status and update telemetry
+  rpc SendHeartbeat (HeartbeatRequest) returns (HeartbeatResponse);
+
+  // Query the unified cluster state (consolidated VRAM, cores, online nodes)
+  rpc GetClusterState (ClusterStateRequest) returns (ClusterPoolState);
+
+  // Gracefully leave the pool
+  rpc UnregisterNode (UnregisterRequest) returns (UnregisterResponse);
+}
+
+// -------------------------------------------------------------
+// Hardware Specifications
+// -------------------------------------------------------------
+
+message GPUSpec {
+  string name = 1;
+  string vendor = 2; // NVIDIA, AMD, Apple, Intel
+  int64 total_vram_mb = 3;
+  int64 free_vram_mb = 4;
+  string compute_capability = 5;
+  int32 device_index = 6;
+  float temperature_c = 7;
+  bool has_cuda = 8;
+}
+
+message CPUSpec {
+  string name = 1;
+  string architecture = 2; // x86_64, arm64, etc.
+  int32 physical_cores = 3;
+  int32 logical_cores = 4;
+  float frequency_mhz = 5;
+  bool has_avx = 6;
+  bool has_avx2 = 7;
+  bool has_avx512 = 8;
+}
+
+message RAMSpec {
+  int64 total_ram_mb = 1;
+  int64 available_ram_mb = 2;
+}
+
+message ComputeBenchmark {
+  float cpu_gflops = 1;
+  float gpu_gflops = 2;
+  float benchmark_duration_ms = 3;
+}
+
+message HardwareSpec {
+  repeated GPUSpec gpus = 1;
+  CPUSpec cpu = 2;
+  RAMSpec ram = 3;
+  ComputeBenchmark benchmark = 4;
+  string os_name = 5;
+}
+
+// -------------------------------------------------------------
+// Network & Identity
+// -------------------------------------------------------------
+
+message NodeEndpoint {
+  string public_ip = 1;
+  int32 public_port = 2;
+  string local_ip = 3;
+  int32 local_port = 4;
+  string nat_type = 5; // Direct, FullCone, Restricted, Symmetric
+}
+
+enum NodeStatus {
+  NODE_STATUS_UNKNOWN = 0;
+  NODE_STATUS_ONLINE = 1;
+  NODE_STATUS_BUSY = 2;
+  NODE_STATUS_OFFLINE = 3;
+}
+
+message NodeInfo {
+  string node_id = 1;
+  string public_key = 2;
+  string hostname = 3;
+  NodeEndpoint endpoint = 4;
+  HardwareSpec hardware = 5;
+  NodeStatus status = 6;
+  int64 joined_timestamp = 7;
+  int64 last_heartbeat_timestamp = 8;
+  int64 ping_latency_ms = 9;
+}
+
+// -------------------------------------------------------------
+// Requests & Responses
+// -------------------------------------------------------------
+
+message RegistrationRequest {
+  NodeInfo node = 1;
+  bytes signature = 2; // Ed25519 signature over node details
+}
+
+message RegistrationResponse {
+  bool success = 1;
+  string message = 2;
+  string assigned_cluster_id = 3;
+  ClusterPoolState current_cluster_state = 4;
+}
+
+message HeartbeatRequest {
+  string node_id = 1;
+  int64 timestamp = 2;
+  int64 free_vram_mb = 3;
+  int64 available_ram_mb = 4;
+  float cpu_utilization_pct = 5;
+  float gpu_utilization_pct = 6;
+}
+
+message HeartbeatResponse {
+  bool acknowledged = 1;
+  int64 server_timestamp = 2;
+  int32 active_nodes_count = 3;
+}
+
+message ClusterStateRequest {
+  string requester_node_id = 1;
+}
+
+message ClusterPoolState {
+  string cluster_id = 1;
+  int32 total_nodes = 2;
+  int32 online_nodes = 3;
+  int32 total_gpus = 4;
+  int64 total_vram_mb = 5;
+  int32 total_cpu_cores = 6;
+  int64 total_ram_mb = 7;
+  float combined_gflops = 8;
+  repeated NodeInfo nodes = 9;
+  int64 last_updated_timestamp = 10;
+}
+
+message UnregisterRequest {
+  string node_id = 1;
+  string reason = 2;
+}
+
+message UnregisterResponse {
+  bool success = 1;
+  string message = 2;
+}
